@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: jobrequest
     app.kubernetes.io/managed-by: kustomize
-  name: jobrequest-sample
+  name: jobrequest-sample2
 spec:
   image: busybox:1.28
   command:
