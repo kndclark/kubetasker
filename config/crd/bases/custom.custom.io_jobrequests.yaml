@@ -125,6 +125,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              phase:
+                description: |-
+                  Phase represents the current phase of the JobRequest.
+                  E.g., Pending, Running, Succeeded, Failed.
+                type: string
             type: object
         required:
         - spec

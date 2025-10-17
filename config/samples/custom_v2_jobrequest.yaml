@@ -9,4 +9,4 @@ spec:
   image: busybox:1.28
   command:
     - "echo"
-    - "Hello from my first custom resource!"
+    - "Hello from my second custom resource!"

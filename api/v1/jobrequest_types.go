@@ -41,6 +41,11 @@ type JobRequestStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Phase represents the current phase of the JobRequest.
+	// E.g., Pending, Running, Succeeded, Failed.
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 
