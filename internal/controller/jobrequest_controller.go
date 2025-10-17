@@ -73,12 +73,12 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		currentPhase := jobRequest.Status.Phase
 		var newPhase string
 
-		if childJob.Status.Succeeded > 0 {
-			log.Info("Child Job has succeeded.")
-			newPhase = "Succeeded"
-		} else if childJob.Status.Failed > 0 {
+		if childJob.Status.Failed > 0 {
 			log.Info("Child Job has failed.")
 			newPhase = "Failed"
+		} else if childJob.Status.Succeeded > 0 {
+			log.Info("Child Job has succeeded.")
+			newPhase = "Succeeded"
 		} else {
 			log.Info("Child Job is still processing.")
 			newPhase = "Processing"
