@@ -34,6 +34,11 @@ import (
 
 var _ = Describe("JobRequest Controller", func() {
 	Context("When reconciling a resource", func() {
+		const (
+			JobRequestPhaseSucceeded = "Succeeded"
+			JobRequestPhaseFailed    = "Failed"
+		)
+
 		const resourceName = "test-resource"
 
 		ctx := context.Background()
@@ -151,7 +156,7 @@ var _ = Describe("JobRequest Controller", func() {
 				}
 				return updatedJobRequest.Status.Phase
 			}, time.Second*10, time.Millisecond*250).Should(Equal("Succeeded"))
-		})
+		}) //
 
 		It("should update the JobRequest status to Failed when the Job fails", func() {
 			By("Reconciling the created resource to create the Job")
@@ -190,13 +195,13 @@ var _ = Describe("JobRequest Controller", func() {
 				}
 				return updatedJobRequest.Status.Phase
 			}, time.Second*10, time.Millisecond*250).Should(Equal("Failed"))
-		})
+		}) //
 
 		It("should not create a new Job if the JobRequest is already Succeeded", func() {
 			By("Manually setting the JobRequest status to Succeeded")
 			succeededJobRequest := &customv1.JobRequest{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, succeededJobRequest)).To(Succeed())
-			succeededJobRequest.Status.Phase = "Succeeded"
+			succeededJobRequest.Status.Phase = JobRequestPhaseSucceeded
 			Expect(k8sClient.Status().Update(ctx, succeededJobRequest)).To(Succeed())
 
 			By("Reconciling the resource")
@@ -223,7 +228,7 @@ var _ = Describe("JobRequest Controller", func() {
 			By("Manually setting the JobRequest status to Failed")
 			failedJobRequest := &customv1.JobRequest{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, failedJobRequest)).To(Succeed())
-			failedJobRequest.Status.Phase = "Failed"
+			failedJobRequest.Status.Phase = JobRequestPhaseFailed
 			Expect(k8sClient.Status().Update(ctx, failedJobRequest)).To(Succeed())
 
 			By("Reconciling the resource")
