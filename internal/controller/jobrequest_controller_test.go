@@ -51,7 +51,10 @@ var _ = Describe("JobRequest Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: customv1.JobRequestSpec{
+						Image:   "test-image:latest",
+						Command: []string{"echo", "hello"},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
