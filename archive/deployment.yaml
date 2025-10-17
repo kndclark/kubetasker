@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-listener-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: job-listener
+  template:
+    metadata:
+      labels:
+        app: job-listener
+    spec:
+      serviceAccountName: job-listener-sa # Use the service account with kubectl permissions
+      containers:
+      - name: job-listener-container
+        image: simple-api:latest 
+        imagePullPolicy: IfNotPresent # Tells K8s to use a local image and not pull from a registry
+        ports:
+        - containerPort: 8000
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
