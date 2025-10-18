@@ -302,6 +302,45 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyCAInjection).Should(Succeed())
 		})
 
+		It("should handle a JobRequest that results in a successful Job", func() {
+			const jobRequestName = "test-jobrequest-success"
+			const jobRequestYAML = `
+apiVersion: custom.custom.io/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'Success'; exit 0"]
+`
+			By("creating a JobRequest that is destined to succeed")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the JobRequest status to become 'Succeeded'")
+			verifyJobRequestSucceeded := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Succeeded"), "JobRequest phase should be Succeeded")
+			}
+			Eventually(verifyJobRequestSucceeded, 60*time.Second).Should(Succeed())
+
+			By("verifying the underlying Job is marked as succeeded")
+			verifyJobSucceeded := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobRequestName+"-job",
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='Complete')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "Job should have a Complete condition with status True")
+			}
+			Eventually(verifyJobSucceeded).Should(Succeed())
+		})
+
 		It("should handle a JobRequest that results in a failed Job", func() {
 			const jobRequestName = "test-jobrequest-fail"
 			const jobRequestYAML = `
@@ -330,7 +369,7 @@ spec:
 			}
 			// The Job has a backoffLimit of 4, so this might take some time.
 			// We'll give it a generous timeout.
-			Eventually(verifyJobRequestFailed, 5*time.Minute).Should(Succeed())
+			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
 
 			By("verifying the underlying Job is marked as failed")
 			verifyJobFailed := func(g Gomega) {
