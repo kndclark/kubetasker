@@ -47,7 +47,7 @@ func (r *JobRequest) Default() {
 
 	// Set the default phase to "Pending" if it's not already set.
 	if r.Status.Phase == "" {
-		r.Status.Phase = "Pending"
+		r.Status.Phase = JobRequestPhasePending
 	}
 }
 

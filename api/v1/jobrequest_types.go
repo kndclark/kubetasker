@@ -36,7 +36,18 @@ type JobRequestSpec struct {
 	Command []string `json:"command,omitempty"`
 }
 
+// Define the valid phases for a JobRequest
+const (
+	JobRequestPhasePending    = "Pending"
+	JobRequestPhaseProcessing = "Processing"
+	JobRequestPhaseSucceeded  = "Succeeded"
+	JobRequestPhaseFailed     = "Failed"
+)
+
 // JobRequestStatus defines the observed state of JobRequest.
+// +kubebuilder:pruning:PreserveUnknownFields
+// This marker is required to preserve the `conditions` field,
+// which is not always known by the CRD schema.
 type JobRequestStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
