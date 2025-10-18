@@ -89,7 +89,12 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if jobFailed {
 			log.Info("Child Job exceeded its backoff limit and failed", "Job", client.ObjectKeyFromObject(&childJob))
 			newPhase = customv1.JobRequestPhaseFailed
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: "JobStatus", Status: metav1.ConditionFalse, Reason: "JobFailed", Message: "The underlying Job has failed after multiple retries."})
+			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
+				Type:    customv1.JobReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  customv1.ReasonJobFailed,
+				Message: "The underlying Job has failed after multiple retries.",
+			})
 		} else if childJob.Status.Succeeded > 0 {
 			log.Info("Child Job has succeeded", "Job", client.ObjectKeyFromObject(&childJob))
 			newPhase = customv1.JobRequestPhaseSucceeded

@@ -44,6 +44,15 @@ const (
 	JobRequestPhaseFailed     = "Failed"
 )
 
+// Condition types for a JobRequest.
+const (
+	// JobReady indicates whether the underlying Job is ready and the JobRequest is progressing.
+	// This is a positive-polarity condition.
+	JobReady string = "JobReady"
+
+	ReasonJobFailed string = "JobFailed"
+)
+
 // JobRequestStatus defines the observed state of JobRequest.
 // +kubebuilder:pruning:PreserveUnknownFields
 // This marker is required to preserve the `conditions` field,

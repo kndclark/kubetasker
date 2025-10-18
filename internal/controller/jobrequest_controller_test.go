@@ -208,7 +208,7 @@ var _ = Describe("JobRequest Controller", func() {
 					return false
 				}
 				for _, cond := range updatedJobRequest.Status.Conditions {
-					return cond.Type == "JobStatus" && cond.Status == metav1.ConditionFalse && cond.Reason == "JobFailed"
+					return cond.Type == customv1.JobReady && cond.Status == metav1.ConditionFalse && cond.Reason == customv1.ReasonJobFailed
 				}
 				return false
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
