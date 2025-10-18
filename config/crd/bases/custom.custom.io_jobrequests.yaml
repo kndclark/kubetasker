@@ -131,6 +131,7 @@ spec:
                   E.g., Pending, Running, Succeeded, Failed.
                 type: string
             type: object
+            x-kubernetes-preserve-unknown-fields: true
         required:
         - spec
         type: object

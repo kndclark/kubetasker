@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,11 +35,6 @@ import (
 
 var _ = Describe("JobRequest Controller", func() {
 	Context("When reconciling a resource", func() {
-		const (
-			JobRequestPhaseSucceeded = "Succeeded"
-			JobRequestPhaseFailed    = "Failed"
-		)
-
 		const resourceName = "test-resource"
 
 		ctx := context.Background()
@@ -155,7 +151,7 @@ var _ = Describe("JobRequest Controller", func() {
 					return ""
 				}
 				return updatedJobRequest.Status.Phase
-			}, time.Second*10, time.Millisecond*250).Should(Equal("Succeeded"))
+			}, time.Second*10, time.Millisecond*250).Should(Equal(customv1.JobRequestPhaseSucceeded))
 		}) //
 
 		It("should update the JobRequest status to Failed when the Job fails", func() {
@@ -177,7 +173,22 @@ var _ = Describe("JobRequest Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 
 			// Manually update the Job's status to Failed
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{
+					Type:   batchv1.JobFailed,
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+				{
+					Type:   "FailureTarget",
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+			}
 			createdJob.Status.Failed = 1
+
 			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
 
 			By("Re-reconciling the resource to observe the Job's failure")
@@ -188,20 +199,26 @@ var _ = Describe("JobRequest Controller", func() {
 
 			By("Checking if the JobRequest status is updated to Failed")
 			updatedJobRequest := &customv1.JobRequest{}
-			Eventually(func() string {
+			Eventually(func() bool {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				if err != nil {
-					return ""
+					return false
 				}
-				return updatedJobRequest.Status.Phase
-			}, time.Second*10, time.Millisecond*250).Should(Equal("Failed"))
+				if updatedJobRequest.Status.Phase != customv1.JobRequestPhaseFailed {
+					return false
+				}
+				for _, cond := range updatedJobRequest.Status.Conditions {
+					return cond.Type == "JobStatus" && cond.Status == metav1.ConditionFalse && cond.Reason == "JobFailed"
+				}
+				return false
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		}) //
 
 		It("should not create a new Job if the JobRequest is already Succeeded", func() {
 			By("Manually setting the JobRequest status to Succeeded")
 			succeededJobRequest := &customv1.JobRequest{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, succeededJobRequest)).To(Succeed())
-			succeededJobRequest.Status.Phase = JobRequestPhaseSucceeded
+			succeededJobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
 			Expect(k8sClient.Status().Update(ctx, succeededJobRequest)).To(Succeed())
 
 			By("Reconciling the resource")
@@ -228,7 +245,7 @@ var _ = Describe("JobRequest Controller", func() {
 			By("Manually setting the JobRequest status to Failed")
 			failedJobRequest := &customv1.JobRequest{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, failedJobRequest)).To(Succeed())
-			failedJobRequest.Status.Phase = JobRequestPhaseFailed
+			failedJobRequest.Status.Phase = customv1.JobRequestPhaseFailed
 			Expect(k8sClient.Status().Update(ctx, failedJobRequest)).To(Succeed())
 
 			By("Reconciling the resource")

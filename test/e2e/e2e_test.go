@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -130,9 +131,9 @@ var _ = Describe("Manager", Ordered, func() {
 			cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", namespace)
 			podDescription, err := utils.Run(cmd)
 			if err == nil {
-				fmt.Println("Pod description:\n", podDescription)
+				_, _ = fmt.Fprintf(GinkgoWriter, "Pod description:\n%s", podDescription)
 			} else {
-				fmt.Println("Failed to describe controller pod")
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to describe controller pod: %s", err)
 			}
 		}
 	})
@@ -301,17 +302,46 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyCAInjection).Should(Succeed())
 		})
 
-		// +kubebuilder:scaffold:e2e-webhooks-checks
+		It("should handle a JobRequest that results in a failed Job", func() {
+			const jobRequestName = "test-jobrequest-fail"
+			const jobRequestYAML = `
+apiVersion: custom.custom.io/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "exit 1"]
+`
+			By("creating a JobRequest that is destined to fail")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+			By("waiting for the JobRequest status to become 'Failed'")
+			verifyJobRequestFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+			}
+			// The Job has a backoffLimit of 4, so this might take some time.
+			// We'll give it a generous timeout.
+			Eventually(verifyJobRequestFailed, 5*time.Minute).Should(Succeed())
+
+			By("verifying the underlying Job is marked as failed")
+			verifyJobFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobRequestName+"-job",
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='Failed')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "Job should have a Failed condition with status True")
+			}
+			Eventually(verifyJobFailed).Should(Succeed())
+		})
 	})
 })
 
