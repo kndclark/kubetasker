@@ -77,11 +77,53 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		currentPhase := jobRequest.Status.Phase
 		var newPhase string
 
-		// Check if the Job has failed by exceeding its backoff limit.
+		// Check if the Job has failed and determine the reason.
 		var jobFailed bool
+		var failureReason, failureMessage string
 		for _, condition := range childJob.Status.Conditions {
 			if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
 				jobFailed = true
+				// Default to transient failure if no specific reason is found.
+				failureReason = customv1.ReasonTransientFailure
+				failureMessage = "The underlying Job has failed after multiple retries."
+
+				// More specific failure reasons based on Job condition.
+				if condition.Reason == "ImagePullBackOff" || condition.Reason == "ErrImagePull" {
+					failureReason = customv1.ReasonPermanentFailure
+					failureMessage = "The underlying Job failed due to an image pull error. Please check the image name and repository credentials."
+				}
+
+				// For more detailed errors, we inspect the pods of the failed job.
+				var podList corev1.PodList
+				if err := r.List(ctx, &podList, client.InNamespace(req.Namespace), client.MatchingLabels{"job-name": jobName}); err == nil {
+					for _, pod := range podList.Items {
+						// Check for container status reasons
+						for _, containerStatus := range pod.Status.ContainerStatuses {
+							if containerStatus.State.Waiting != nil {
+								if containerStatus.State.Waiting.Reason == "CreateContainerConfigError" {
+									failureReason = customv1.ReasonConflictError
+									failureMessage = fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
+									break // Found a conflict, no need to check other containers/pods
+								}
+							}
+							if containerStatus.State.Terminated != nil {
+								// Example: Classify exit code 1 as a recoverable logic error.
+								// This can be customized based on application conventions.
+								if containerStatus.State.Terminated.ExitCode == 1 {
+									failureReason = customv1.ReasonRecoverableLogicError
+									failureMessage = fmt.Sprintf("Job failed with a recoverable logic error (exit code 1). Reason: %s", containerStatus.State.Terminated.Reason)
+									break
+								}
+							}
+						}
+						if failureReason == customv1.ReasonConflictError || failureReason == customv1.ReasonRecoverableLogicError {
+							break // Exit pod loop once a specific reason is found
+						}
+					}
+				} else {
+					log.Error(err, "Could not list pods for failed job to determine specific failure reason")
+				}
+
 				break
 			}
 		}
@@ -92,8 +134,8 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
 				Type:    customv1.JobReady,
 				Status:  metav1.ConditionFalse,
-				Reason:  customv1.ReasonJobFailed,
-				Message: "The underlying Job has failed after multiple retries.",
+				Reason:  failureReason,
+				Message: failureMessage,
 			})
 		} else if childJob.Status.Succeeded > 0 {
 			log.Info("Child Job has succeeded", "Job", client.ObjectKeyFromObject(&childJob))

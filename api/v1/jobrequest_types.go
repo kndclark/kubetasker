@@ -50,7 +50,20 @@ const (
 	// This is a positive-polarity condition.
 	JobReady string = "JobReady"
 
+	// Reasons for conditions
+	// ReasonJobFailed is a generic reason for a failed job.
 	ReasonJobFailed string = "JobFailed"
+	// ReasonPermanentFailure indicates a failure that is unlikely to be resolved by retrying,
+	// such as an invalid image name.
+	ReasonPermanentFailure string = "PermanentFailure"
+	// ReasonTransientFailure indicates a temporary failure that might be resolved by retrying.
+	ReasonTransientFailure string = "TransientFailure"
+	// ReasonConflictError indicates a conflict with the state of the system, such as a missing
+	// ConfigMap or Secret, that prevents the job from running.
+	ReasonConflictError string = "ConflictError"
+	// ReasonRecoverableLogicError indicates a failure in the application logic that might be
+	// recoverable with code changes.
+	ReasonRecoverableLogicError string = "RecoverableLogicError"
 )
 
 // JobRequestStatus defines the observed state of JobRequest.
