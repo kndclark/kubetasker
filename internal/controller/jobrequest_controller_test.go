@@ -18,20 +18,27 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
 
 var _ = Describe("JobRequest Controller", func() {
 	Context("When reconciling a resource", func() {
+		const (
+			JobRequestPhaseSucceeded = "Succeeded"
+			JobRequestPhaseFailed    = "Failed"
+		)
+
 		const resourceName = "test-resource"
 
 		ctx := context.Background()
@@ -61,15 +68,30 @@ var _ = Describe("JobRequest Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &customv1.JobRequest{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			By("Cleanup the JobRequest resource")
+			jobRequest := &customv1.JobRequest{}
+			// First, try to get the resource. If it exists, delete it.
+			if err := k8sClient.Get(ctx, typeNamespacedName, jobRequest); err == nil {
+				Expect(k8sClient.Delete(ctx, jobRequest, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(Succeed())
+				// Wait for the deletion to complete.
+				Eventually(func() bool {
+					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, jobRequest))
+				}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+			}
 
-			By("Cleanup the specific resource instance JobRequest")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			By("Cleanup the Job resource")
+			job := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			// Try to get the job. If it exists, delete it.
+			if err := k8sClient.Get(ctx, jobNamespacedName, job); err == nil {
+				Expect(k8sClient.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(Succeed())
+				// Wait for the deletion to complete.
+				Eventually(func() bool {
+					return errors.IsNotFound(k8sClient.Get(ctx, jobNamespacedName, job))
+				}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+			}
 		})
-		It("should successfully reconcile the resource", func() {
+		It("should successfully reconcile the resource and create a Job", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &JobRequestReconciler{
 				Client: k8sClient,
@@ -80,8 +102,177 @@ var _ = Describe("JobRequest Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			By("Checking if the Job was created")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{
+				Name:      resourceName + "-job",
+				Namespace: "default",
+			}
+
+			// We use Eventually to poll because the creation of the Job is asynchronous.
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, jobNamespacedName, createdJob)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			Expect(createdJob.Spec.Template.Spec.Containers[0].Image).To(Equal("test-image:latest"))
+		})
+
+		It("should update the JobRequest status to Succeeded when the Job completes", func() {
+			By("Reconciling the created resource to create the Job")
+			controllerReconciler := &JobRequestReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Finding the created Job and simulating its completion")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Manually update the Job's status to Succeeded
+			createdJob.Status.Succeeded = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling the resource to observe the Job's completion")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking if the JobRequest status is updated to Succeeded")
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func() string {
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				if err != nil {
+					return ""
+				}
+				return updatedJobRequest.Status.Phase
+			}, time.Second*10, time.Millisecond*250).Should(Equal("Succeeded"))
+		}) //
+
+		It("should update the JobRequest status to Failed when the Job fails", func() {
+			By("Reconciling the created resource to create the Job")
+			controllerReconciler := &JobRequestReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Finding the created Job and simulating its failure")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Manually update the Job's status to Failed
+			createdJob.Status.Failed = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling the resource to observe the Job's failure")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking if the JobRequest status is updated to Failed")
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func() string {
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				if err != nil {
+					return ""
+				}
+				return updatedJobRequest.Status.Phase
+			}, time.Second*10, time.Millisecond*250).Should(Equal("Failed"))
+		}) //
+
+		It("should not create a new Job if the JobRequest is already Succeeded", func() {
+			By("Manually setting the JobRequest status to Succeeded")
+			succeededJobRequest := &customv1.JobRequest{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, succeededJobRequest)).To(Succeed())
+			succeededJobRequest.Status.Phase = JobRequestPhaseSucceeded
+			Expect(k8sClient.Status().Update(ctx, succeededJobRequest)).To(Succeed())
+
+			By("Reconciling the resource")
+			controllerReconciler := &JobRequestReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Ensuring no Job was created")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{
+				Name:      resourceName + "-job",
+				Namespace: "default",
+			}
+			err = k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should not create a new Job if the JobRequest is already Failed", func() {
+			By("Manually setting the JobRequest status to Failed")
+			failedJobRequest := &customv1.JobRequest{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, failedJobRequest)).To(Succeed())
+			failedJobRequest.Status.Phase = JobRequestPhaseFailed
+			Expect(k8sClient.Status().Update(ctx, failedJobRequest)).To(Succeed())
+
+			By("Reconciling the resource")
+			controllerReconciler := &JobRequestReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Ensuring no Job was created")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{
+				Name:      resourceName + "-job",
+				Namespace: "default",
+			}
+			err = k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should set the JobRequest as the owner of the created Job", func() {
+			By("Reconciling the resource to create the Job")
+			controllerReconciler := &JobRequestReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for the Job to be created and checking its owner reference")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			Expect(createdJob.OwnerReferences).To(HaveLen(1))
+			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
+			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
+			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
 		})
 	})
 })
