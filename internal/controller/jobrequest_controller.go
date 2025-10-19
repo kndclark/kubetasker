@@ -144,7 +144,21 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if childJob.Status.Failed > 0 {
 			log.Info("Child Job has failed according to its own status")
 			jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonTransientFailure, Message: "Job failed after reaching its backoff limit."})
+
+			// Determine the reason from the Job's conditions.
+			reason := customv1.ReasonTransientFailure // Default to transient
+			message := "Job failed after reaching its backoff limit."
+			for _, cond := range childJob.Status.Conditions {
+				if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+					if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
+						reason = customv1.ReasonPermanentFailure
+						message = "Job failed due to an image pull error."
+					}
+					break
+				}
+			}
+
+			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
 			if err := r.Status().Update(ctx, &jobRequest); err != nil {
 				return ctrl.Result{}, err
 			}
