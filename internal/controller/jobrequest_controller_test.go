@@ -89,14 +89,14 @@ var _ = Describe("JobRequest Controller", func() {
 			}
 		})
 
-		// Helper function to check for a specific condition reason
-		getConditionReason := func(jobRequest *customv1.JobRequest, condType string) string {
+		// Helper function to get a specific condition
+		getCondition := func(jobRequest *customv1.JobRequest, condType string) *metav1.Condition {
 			for _, cond := range jobRequest.Status.Conditions {
 				if cond.Type == condType {
-					return cond.Reason
+					return &cond
 				}
 			}
-			return ""
+			return nil
 		}
 
 		It("should successfully reconcile the resource and create a Job", func() {
@@ -157,13 +157,17 @@ var _ = Describe("JobRequest Controller", func() {
 
 			By("Checking if the JobRequest status is updated to Succeeded")
 			updatedJobRequest := &customv1.JobRequest{}
-			Eventually(func() string {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
-				if err != nil {
-					return ""
-				}
-				return updatedJobRequest.Status.Phase
-			}, time.Second*10, time.Millisecond*250).Should(Equal(customv1.JobRequestPhaseSucceeded))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseSucceeded))
+
+				// Verify the condition is set correctly
+				succeededCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(succeededCondition).NotTo(BeNil())
+				g.Expect(succeededCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(succeededCondition.Reason).To(Equal("JobSucceeded"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		}) //
 
 		It("should update status to Failed with TransientFailure for BackoffLimitExceeded", func() {
@@ -215,7 +219,11 @@ var _ = Describe("JobRequest Controller", func() {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
-				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonTransientFailure))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonTransientFailure))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
@@ -253,7 +261,11 @@ var _ = Describe("JobRequest Controller", func() {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
-				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonPermanentFailure))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
@@ -310,7 +322,11 @@ var _ = Describe("JobRequest Controller", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)).To(Succeed())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
-				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonPermanentFailure))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		})
 
@@ -374,7 +390,11 @@ var _ = Describe("JobRequest Controller", func() {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
-				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonConflictError))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonConflictError))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 
 			// Clean up the mock pod
@@ -440,7 +460,11 @@ var _ = Describe("JobRequest Controller", func() {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
-				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonRecoverableLogicError))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonRecoverableLogicError))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 
 			// Clean up the mock pod
