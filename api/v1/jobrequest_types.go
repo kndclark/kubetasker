@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,6 +35,21 @@ type JobRequestSpec struct {
 	// Command is the command to run inside the container.
 	// +optional
 	Command []string `json:"command,omitempty"`
+
+	// RestartPolicy defines the restart policy for the job's pods.
+	// Can be "OnFailure" or "Never". Defaults to "OnFailure".
+	// +kubebuilder:validation:Enum=OnFailure;Never
+	// +optional
+	RestartPolicy string `json:"restartPolicy,omitempty"`
+
+	// Env defines environment variables to set in the container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// BackoffLimit specifies the number of retries before marking this job as failed.
+	// Defaults to 4. Set to 0 to fail on the first error when RestartPolicy is Never.
+	// +optional
+	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
 
 // Define the valid phases for a JobRequest
@@ -42,6 +58,28 @@ const (
 	JobRequestPhaseProcessing = "Processing"
 	JobRequestPhaseSucceeded  = "Succeeded"
 	JobRequestPhaseFailed     = "Failed"
+)
+
+// Condition types for a JobRequest.
+const (
+	// JobReady indicates whether the underlying Job is ready and the JobRequest is progressing.
+	// This is a positive-polarity condition.
+	JobReady string = "JobReady"
+
+	// Reasons for conditions
+	// ReasonJobFailed is a generic reason for a failed job.
+	ReasonJobFailed string = "JobFailed"
+	// ReasonPermanentFailure indicates a failure that is unlikely to be resolved by retrying,
+	// such as an invalid image name.
+	ReasonPermanentFailure string = "PermanentFailure"
+	// ReasonTransientFailure indicates a temporary failure that might be resolved by retrying.
+	ReasonTransientFailure string = "TransientFailure"
+	// ReasonConflictError indicates a conflict with the state of the system, such as a missing
+	// ConfigMap or Secret, that prevents the job from running.
+	ReasonConflictError string = "ConflictError"
+	// ReasonRecoverableLogicError indicates a failure in the application logic that might be
+	// recoverable with code changes.
+	ReasonRecoverableLogicError string = "RecoverableLogicError"
 )
 
 // JobRequestStatus defines the observed state of JobRequest.

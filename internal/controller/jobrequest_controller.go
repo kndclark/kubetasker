@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -43,6 +44,7 @@ type JobRequestReconciler struct {
 // +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -70,63 +72,21 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var childJob batchv1.Job
 	jobName := fmt.Sprintf("%s-job", jobRequest.Name)
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: req.Namespace}, &childJob); err == nil {
-		// Job already exists. Let's check its status and update our JobRequest status.
-		log.Info("Found child Job, checking status", "Job", client.ObjectKeyFromObject(&childJob))
-
-		// Determine the new phase based on the Job's status
-		currentPhase := jobRequest.Status.Phase
-		var newPhase string
-
-		// Check if the Job has failed by exceeding its backoff limit.
-		var jobFailed bool
-		for _, condition := range childJob.Status.Conditions {
-			if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
-				jobFailed = true
-				break
-			}
-		}
-
-		if jobFailed {
-			log.Info("Child Job exceeded its backoff limit and failed", "Job", client.ObjectKeyFromObject(&childJob))
-			newPhase = customv1.JobRequestPhaseFailed
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: "JobStatus", Status: metav1.ConditionFalse, Reason: "JobFailed", Message: "The underlying Job has failed after multiple retries."})
-		} else if childJob.Status.Succeeded > 0 {
-			log.Info("Child Job has succeeded", "Job", client.ObjectKeyFromObject(&childJob))
-			newPhase = customv1.JobRequestPhaseSucceeded
-		} else {
-			log.Info("Child Job is still processing", "Job", client.ObjectKeyFromObject(&childJob))
-			newPhase = customv1.JobRequestPhaseProcessing
-		}
-
-		// Update the status only if the phase has changed
-		if currentPhase != newPhase {
-			log.Info("Updating JobRequest status", "from", currentPhase, "to", newPhase)
-			jobRequest.Status.Phase = newPhase
-			if err := r.Status().Update(ctx, &jobRequest); err != nil {
-				log.Error(err, "Failed to update JobRequest status")
-				return ctrl.Result{}, err
-			}
-		}
-
-		return ctrl.Result{}, nil
-
+		return r.reconcileExistingJob(ctx, &jobRequest, &childJob)
 	} else if !errors.IsNotFound(err) {
 		// Some other error occurred when trying to get the job.
 		log.Error(err, "Failed to get child Job", "Job", jobName)
 		return ctrl.Result{}, err
 	}
 
-	// 3. If the Job does not exist, and the JobRequest is not in a terminal state, create it.
-	// Check if the JobRequest is already in a terminal phase.
-	if jobRequest.Status.Phase == customv1.JobRequestPhaseSucceeded || jobRequest.Status.Phase == customv1.JobRequestPhaseFailed {
-		log.Info("JobRequest is in a terminal phase, skipping Job creation", "phase", jobRequest.Status.Phase)
-		return ctrl.Result{}, nil
+	// The backoff limit is defaulted by the webhook, so we can use it directly.
+	// This nil check is a safeguard in case webhooks are disabled.
+	if jobRequest.Spec.BackoffLimit == nil {
+		jobRequest.Spec.BackoffLimit = new(int32)
+		*jobRequest.Spec.BackoffLimit = 4
 	}
 
-	// If we are here, it means the job does not exist and the JobRequest is not in a terminal state.
-	// So, we should create the job.
-	log.Info("Creating a new Job for JobRequest")
-
+	// 3. If the Job does not exist, and the JobRequest is not in a terminal state, create it.
 	// Define the new Job from the JobRequest's spec
 	newJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -147,6 +107,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							Name:    "job-container",
 							Image:   jobRequest.Spec.Image,
 							Command: jobRequest.Spec.Command,
+							Env:     jobRequest.Spec.Env,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsUser:                &[]int64{1001}[0],
 								RunAsGroup:               &[]int64{1001}[0],
@@ -159,13 +120,12 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							},
 						},
 					},
-					RestartPolicy: corev1.RestartPolicyOnFailure,
+					RestartPolicy: corev1.RestartPolicy(jobRequest.Spec.RestartPolicy),
 				},
 			},
-			BackoffLimit: new(int32), // A pointer to an int32
+			BackoffLimit: jobRequest.Spec.BackoffLimit,
 		},
 	}
-	*newJob.Spec.BackoffLimit = 4 // Set the backoff limit
 
 	// Set the JobRequest as the owner of this Job. When the JobRequest is deleted,
 	// Kubernetes will automatically delete the Job it owns.
@@ -174,21 +134,123 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Job created", "Job", client.ObjectKeyFromObject(newJob))
-	if err := r.Create(ctx, newJob); err != nil {
-		log.Error(err, "Failed to create new Job", "Job", client.ObjectKeyFromObject(newJob))
-		return ctrl.Result{}, err
-	}
+	// Check if the JobRequest is already in a terminal phase before creating a new Job.
+	if jobRequest.Status.Phase == "" || jobRequest.Status.Phase == customv1.JobRequestPhasePending {
+		log.Info("Creating a new Job for JobRequest")
+		if err := r.Create(ctx, newJob); err != nil {
+			log.Error(err, "Failed to create new Job", "Job", client.ObjectKeyFromObject(newJob))
+			return ctrl.Result{}, err
+		}
 
-	// Job created successfully, update the status of the JobRequest
-	log.Info("JobRequest processing")
-	jobRequest.Status.Phase = customv1.JobRequestPhaseProcessing
-	if err := r.Status().Update(ctx, &jobRequest); err != nil {
-		log.Error(err, "Failed to update JobRequest status")
-		return ctrl.Result{}, err
+		// Job created successfully, update the status of the JobRequest to Processing.
+		log.Info("JobRequest processing")
+		jobRequest.Status.Phase = customv1.JobRequestPhaseProcessing
+		if err := r.Status().Update(ctx, &jobRequest); err != nil {
+			log.Error(err, "Failed to update JobRequest status to Processing")
+			return ctrl.Result{}, err
+		}
+
+		// Requeue the request to check the job status in the next reconciliation.
+		return ctrl.Result{RequeueAfter: time.Second * 1}, nil
+	} else {
+		log.Info("JobRequest is in a terminal phase, skipping Job creation", "phase", jobRequest.Status.Phase)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileExistingJob handles the logic for a JobRequest that already has an associated Job.
+func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequest *customv1.JobRequest, childJob *batchv1.Job) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	jobName := childJob.Name
+
+	// 1. Check for Job completion first. This is a terminal state.
+	if childJob.Status.Succeeded > 0 {
+		log.Info("Child Job has succeeded")
+		if jobRequest.Status.Phase != customv1.JobRequestPhaseSucceeded {
+			jobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
+			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
+				Type:    customv1.JobReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "JobSucceeded",
+				Message: "The job completed successfully.",
+			})
+			if err := r.Status().Update(ctx, jobRequest); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 2. Check for "fail-fast" conditions by inspecting Pods.
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace(jobRequest.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
+		log.Error(err, "Failed to list pods for Job")
+		return ctrl.Result{}, err
+	}
+
+	for _, pod := range podList.Items {
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "CreateContainerConfigError" {
+					var failureType, message string
+					if reason == "CreateContainerConfigError" {
+						failureType = customv1.ReasonConflictError
+						message = fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
+					} else {
+						failureType = customv1.ReasonPermanentFailure
+						message = fmt.Sprintf("Job failed due to an image pull error: %s", containerStatus.State.Waiting.Message)
+					}
+
+					log.Info("Detected permanent pod failure", "reason", reason)
+					jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+					meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
+					if err := r.Status().Update(ctx, jobRequest); err != nil {
+						return ctrl.Result{}, err
+					}
+					return ctrl.Result{}, nil // Stop reconciliation
+				}
+			}
+			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
+				log.Info("Detected recoverable pod failure", "exitCode", containerStatus.State.Terminated.ExitCode)
+				jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+				meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
+				if err := r.Status().Update(ctx, jobRequest); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil // Stop reconciliation
+			}
+		}
+	}
+
+	// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
+	if childJob.Status.Failed > 0 {
+		log.Info("Child Job has failed according to its own status")
+		jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+
+		reason := customv1.ReasonTransientFailure // Default to transient
+		message := "Job failed after reaching its backoff limit."
+		for _, cond := range childJob.Status.Conditions {
+			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+				if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
+					reason = customv1.ReasonPermanentFailure
+					message = "Job failed due to an image pull error."
+				}
+				break
+			}
+		}
+
+		meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
+		if err := r.Status().Update(ctx, jobRequest); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil // Stop reconciliation
+	}
+
+	// 4. If none of the above, the job is still processing.
+	log.Info("Child Job is still processing")
+	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

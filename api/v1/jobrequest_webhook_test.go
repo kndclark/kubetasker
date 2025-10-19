@@ -10,7 +10,7 @@ import (
 var _ = Describe("JobRequest Webhook", func() {
 
 	Context("When creating a JobRequest with defaultable fields", func() {
-		It("should default the status phase to Pending", func() {
+		It("should default the restart policy to OnFailure", func() {
 			jr := &JobRequest{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-jobrequest",
@@ -22,14 +22,14 @@ var _ = Describe("JobRequest Webhook", func() {
 				},
 			}
 
-			// The Phase should be empty initially
-			Expect(jr.Status.Phase).To(BeEmpty())
+			// The RestartPolicy should be empty initially
+			Expect(jr.Spec.RestartPolicy).To(BeEmpty())
 
 			// Call the defaulting webhook logic
 			jr.Default()
 
-			// Assert that the Phase is now "Pending"
-			Expect(jr.Status.Phase).To(Equal("Pending"))
+			// Assert that the RestartPolicy is now "OnFailure"
+			Expect(jr.Spec.RestartPolicy).To(Equal("OnFailure"))
 		})
 	})
 

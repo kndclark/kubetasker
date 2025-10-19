@@ -55,8 +55,9 @@ var _ = Describe("JobRequest Controller", func() {
 						Namespace: "default",
 					},
 					Spec: customv1.JobRequestSpec{
-						Image:   "test-image:latest",
-						Command: []string{"echo", "hello"},
+						Image:         "test-image:latest",
+						Command:       []string{"echo", "hello"},
+						RestartPolicy: "OnFailure", // Set default for tests
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -87,6 +88,17 @@ var _ = Describe("JobRequest Controller", func() {
 				}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 			}
 		})
+
+		// Helper function to get a specific condition
+		getCondition := func(jobRequest *customv1.JobRequest, condType string) *metav1.Condition {
+			for _, cond := range jobRequest.Status.Conditions {
+				if cond.Type == condType {
+					return &cond
+				}
+			}
+			return nil
+		}
+
 		It("should successfully reconcile the resource and create a Job", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &JobRequestReconciler{
@@ -145,16 +157,20 @@ var _ = Describe("JobRequest Controller", func() {
 
 			By("Checking if the JobRequest status is updated to Succeeded")
 			updatedJobRequest := &customv1.JobRequest{}
-			Eventually(func() string {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
-				if err != nil {
-					return ""
-				}
-				return updatedJobRequest.Status.Phase
-			}, time.Second*10, time.Millisecond*250).Should(Equal(customv1.JobRequestPhaseSucceeded))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseSucceeded))
+
+				// Verify the condition is set correctly
+				succeededCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(succeededCondition).NotTo(BeNil())
+				g.Expect(succeededCondition.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(succeededCondition.Reason).To(Equal("JobSucceeded"))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
 		}) //
 
-		It("should update the JobRequest status to Failed when the Job fails", func() {
+		It("should update status to Failed with TransientFailure for BackoffLimitExceeded", func() {
 			By("Reconciling the created resource to create the Job")
 			controllerReconciler := &JobRequestReconciler{
 				Client: k8sClient,
@@ -182,7 +198,7 @@ var _ = Describe("JobRequest Controller", func() {
 					Reason: "BackoffLimitExceeded",
 				},
 				{
-					Type:   "FailureTarget",
+					Type:   batchv1.JobFailureTarget,
 					Status: corev1.ConditionTrue,
 					Reason: "BackoffLimitExceeded",
 				},
@@ -199,20 +215,265 @@ var _ = Describe("JobRequest Controller", func() {
 
 			By("Checking if the JobRequest status is updated to Failed")
 			updatedJobRequest := &customv1.JobRequest{}
-			Eventually(func() bool {
+			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
-				if err != nil {
-					return false
-				}
-				if updatedJobRequest.Status.Phase != customv1.JobRequestPhaseFailed {
-					return false
-				}
-				for _, cond := range updatedJobRequest.Status.Conditions {
-					return cond.Type == "JobStatus" && cond.Status == metav1.ConditionFalse && cond.Reason == "JobFailed"
-				}
-				return false
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonTransientFailure))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should update status to Failed with PermanentFailure for ImagePullBackOff", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Simulating Job failure due to ImagePullBackOff")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "ImagePullBackOff"},
+				{
+					Type:   batchv1.JobFailureTarget,
+					Status: corev1.ConditionTrue,
+					Reason: "ImagePullBackOff",
+				},
+			}
+			createdJob.Status.Failed = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling to observe the failure")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking for PermanentFailure reason")
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should update status to Failed with PermanentFailure for ImagePullBackOff on Pod", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			createdJob := &batchv1.Job{}
+			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Creating a mock Pod with ImagePullBackOff")
+			mockPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName + "-pod-image-pull-fail",
+					Namespace: "default",
+					Labels:    map[string]string{"job-name": jobNamespacedName.Name},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "bad-image"}}},
+			}
+			Expect(k8sClient.Create(ctx, mockPod)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
+			}()
+
+			mockPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+				{
+					Name:  "main",
+					State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mockPod)).To(Succeed())
+
+			// Simulate the parent Job failing
+			createdJob.Status.Failed = 1
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+				{
+					Type:   batchv1.JobFailureTarget,
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)).To(Succeed())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should update status to Failed with ConflictError for CreateContainerConfigError", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			createdJob := &batchv1.Job{}
+			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Creating a mock Pod with CreateContainerConfigError")
+			mockPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName + "-pod-conflict",
+					Namespace: "default",
+					Labels:    map[string]string{"job-name": jobNamespacedName.Name},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "main", Image: "busybox"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mockPod)).To(Succeed())
+
+			mockPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+				{
+					Name: "main",
+					State: corev1.ContainerState{
+						Waiting: &corev1.ContainerStateWaiting{
+							Reason:  "CreateContainerConfigError",
+							Message: "missing secret 'my-secret'",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mockPod)).To(Succeed())
+
+			By("Simulating Job failure")
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+				{
+					Type:   batchv1.JobFailureTarget,
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+			}
+			createdJob.Status.Failed = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling to observe the failure")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking for ConflictError reason")
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonConflictError))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Clean up the mock pod
+			By("Cleaning up the mock conflict pod")
+			Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
+			Eventually(func() bool {
+				return errors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(mockPod), &corev1.Pod{}))
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
-		}) //
+		})
+
+		It("should update status to Failed with RecoverableLogicError for exit code 1", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			createdJob := &batchv1.Job{}
+			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Creating a mock Pod with a failed exit code")
+			mockPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName + "-pod-logic-error",
+					Namespace: "default",
+					Labels:    map[string]string{"job-name": jobNamespacedName.Name},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "busybox"}}},
+			}
+			Expect(k8sClient.Create(ctx, mockPod)).To(Succeed())
+
+			mockPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+				{
+					Name: "main",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error"},
+					},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mockPod)).To(Succeed())
+
+			By("Simulating Job failure")
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+				{
+					Type:   batchv1.JobFailureTarget,
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+			}
+			createdJob.Status.Failed = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling to observe the failure")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking for RecoverableLogicError reason")
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+
+				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				g.Expect(failedCondition).NotTo(BeNil())
+				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonRecoverableLogicError))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Clean up the mock pod
+			By("Cleaning up the mock logic error pod")
+			Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
+			Eventually(func() bool {
+				return errors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(mockPod), &corev1.Pod{}))
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
 
 		It("should not create a new Job if the JobRequest is already Succeeded", func() {
 			By("Manually setting the JobRequest status to Succeeded")
@@ -290,6 +551,32 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
 			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
 			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
+		})
+
+		It("should requeue if the job is still processing", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Finding the created Job and simulating it is active")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Manually update the Job's status to Active
+			createdJob.Status.Active = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling the resource to observe the active state")
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
 		})
 	})
 })

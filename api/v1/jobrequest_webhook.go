@@ -44,10 +44,19 @@ var _ webhook.Defaulter = &JobRequest{}
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *JobRequest) Default() {
 	jobrequestlog.Info("default", "name", r.Name)
+	// Default the restart policy if it's not set.
+	if r.Spec.RestartPolicy == "" {
+		r.Spec.RestartPolicy = "OnFailure"
+	}
 
-	// Set the default phase to "Pending" if it's not already set.
-	if r.Status.Phase == "" {
-		r.Status.Phase = JobRequestPhasePending
+	// Default the backoff limit.
+	if r.Spec.BackoffLimit == nil {
+		if r.Spec.RestartPolicy == "Never" {
+			r.Spec.BackoffLimit = new(int32) // Defaults to 0
+		} else {
+			r.Spec.BackoffLimit = new(int32)
+			*r.Spec.BackoffLimit = 4
+		}
 	}
 }
 
