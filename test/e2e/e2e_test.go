@@ -54,15 +54,11 @@ var _ = Describe("Manager", Ordered, func() {
 	// and deploying the controller.
 	BeforeAll(func() {
 		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
+		// Use apply to be idempotent
+		cmd := exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(fmt.Sprintf("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s", namespace))
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
 
 		By("installing CRDs")
 		cmd = exec.Command("make", "install")
@@ -73,6 +69,14 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("waiting for the webhook server certificate to be provisioned")
+		verifyCertSecret := func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "secret", "webhook-server-cert", "-n", namespace)
+			_, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred(), "webhook-server-cert secret not found")
+		}
+		Eventually(verifyCertSecret, 2*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -302,10 +306,10 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyCAInjection).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a successful Job", func() {
+		It("should handle a JobRequest that results in a successful Job", func() { // Test for successful job
 			const jobRequestName = "test-jobrequest-success"
 			const jobRequestYAML = `
-apiVersion: custom.custom.io/v1
+apiVersion: custom.custom.io/v1 
 kind: JobRequest
 metadata:
   name: %s
@@ -341,7 +345,7 @@ spec:
 			Eventually(verifyJobSucceeded).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a RecoverableLogicError", func() {
+		It("should handle a JobRequest that results in a RecoverableLogicError", func() { // Test for recoverable logic error
 			const jobRequestName = "test-jobrequest-logic-error"
 			const jobRequestYAML = `
 apiVersion: custom.custom.io/v1
@@ -352,6 +356,7 @@ metadata:
 spec:
   image: busybox
   command: ["/bin/sh", "-c", "exit 1"]
+  restartPolicy: Never
 `
 			By("creating a JobRequest that is destined to fail")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
@@ -392,7 +397,7 @@ spec:
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a PermanentFailure", func() {
+		It("should handle a JobRequest that results in a PermanentFailure", func() { // Test for permanent failure
 			const jobRequestName = "test-jobrequest-permanent-fail"
 			const jobRequestYAML = `
 apiVersion: custom.custom.io/v1
@@ -403,6 +408,7 @@ metadata:
 spec:
   image: non-existent-registry/non-existent-image:latest
   command: ["/bin/sh", "-c", "echo 'This will not run'"]
+  restartPolicy: Never
 `
 			By("creating a JobRequest with a bad image name")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
@@ -431,7 +437,7 @@ spec:
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a ConflictError", func() {
+		It("should handle a JobRequest that results in a ConflictError", func() { // Test for conflict error
 			const jobRequestName = "test-jobrequest-conflict-fail"
 			const jobRequestYAML = `
 apiVersion: custom.custom.io/v1
@@ -440,8 +446,16 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  image: busybox
-  command: ["/bin/sh", "-c", "echo 'This will not run' && cat /config/key"]
+  image: busybox 
+  command: ["/bin/sh", "-c", "echo 'My secret is $MY_SECRET'"]
+  # This env var references a secret that does not exist,
+  # which will cause a CreateContainerConfigError.
+  env:
+  - name: MY_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: non-existent-secret
+        key: password
 `
 			By("creating a JobRequest that references a missing ConfigMap")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")

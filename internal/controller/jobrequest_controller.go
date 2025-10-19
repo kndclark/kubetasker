@@ -77,10 +77,35 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// Determine the new phase based on the Job's status
 		currentPhase := jobRequest.Status.Phase
 		var newPhase string
-
-		// Check if the Job has failed and determine the reason.
 		var jobFailed bool
 		var failureReason, failureMessage string
+		newConditions := jobRequest.Status.Conditions
+
+		// Check for early, permanent failures by inspecting pod statuses,
+		// even if the Job itself has not yet failed.
+		var podList corev1.PodList
+		if err := r.List(ctx, &podList, client.InNamespace(req.Namespace), client.MatchingLabels{"job-name": jobName}); err == nil {
+			for _, pod := range podList.Items {
+				for _, containerStatus := range pod.Status.ContainerStatuses {
+					if containerStatus.State.Waiting != nil {
+						reason := containerStatus.State.Waiting.Reason
+						if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+							// Fail fast on image pull errors.
+							newPhase = customv1.JobRequestPhaseFailed
+							meta.SetStatusCondition(&newConditions, metav1.Condition{
+								Type:    customv1.JobReady,
+								Status:  metav1.ConditionFalse,
+								Reason:  customv1.ReasonPermanentFailure,
+								Message: fmt.Sprintf("Job failed due to an image pull error: %s", containerStatus.State.Waiting.Message),
+							})
+							goto updateStatus
+						}
+					}
+				}
+			}
+		}
+
+		// Check if the Job has failed and determine the reason.
 		for _, condition := range childJob.Status.Conditions {
 			if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
 				jobFailed = true
@@ -93,7 +118,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if jobFailed {
 			log.Info("Child Job exceeded its backoff limit and failed", "Job", client.ObjectKeyFromObject(&childJob))
 			newPhase = customv1.JobRequestPhaseFailed
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
+			meta.SetStatusCondition(&newConditions, metav1.Condition{
 				Type:    customv1.JobReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  failureReason,
@@ -107,9 +132,20 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			newPhase = customv1.JobRequestPhaseProcessing
 		}
 
+	updateStatus:
 		// Update the status only if the phase has changed
-		if currentPhase != newPhase {
+		if currentPhase != newPhase || !meta.IsStatusConditionPresentAndEqual(jobRequest.Status.Conditions, newConditions[0].Type, newConditions[0].Status) {
 			log.Info("Updating JobRequest status", "from", currentPhase, "to", newPhase)
+
+			// Before updating, re-fetch the latest version of the JobRequest.
+			// This avoids conflicts if the object was updated by another process
+			// (e.g., by the Job controller updating its status, which bubbles up).
+			if err := r.Get(ctx, req.NamespacedName, &jobRequest); err != nil {
+				log.Error(err, "Failed to re-fetch JobRequest before status update")
+				return ctrl.Result{}, err
+			}
+			// Apply the calculated conditions to the re-fetched object.
+			jobRequest.Status.Conditions = newConditions
 			jobRequest.Status.Phase = newPhase
 			if err := r.Status().Update(ctx, &jobRequest); err != nil {
 				log.Error(err, "Failed to update JobRequest status")
@@ -126,16 +162,6 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// 3. If the Job does not exist, and the JobRequest is not in a terminal state, create it.
-	// Check if the JobRequest is already in a terminal phase.
-	if jobRequest.Status.Phase == customv1.JobRequestPhaseSucceeded || jobRequest.Status.Phase == customv1.JobRequestPhaseFailed {
-		log.Info("JobRequest is in a terminal phase, skipping Job creation", "phase", jobRequest.Status.Phase)
-		return ctrl.Result{}, nil
-	}
-
-	// If we are here, it means the job does not exist and the JobRequest is not in a terminal state.
-	// So, we should create the job.
-	log.Info("Creating a new Job for JobRequest")
-
 	// Define the new Job from the JobRequest's spec
 	newJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -183,18 +209,26 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Job created", "Job", client.ObjectKeyFromObject(newJob))
-	if err := r.Create(ctx, newJob); err != nil {
-		log.Error(err, "Failed to create new Job", "Job", client.ObjectKeyFromObject(newJob))
-		return ctrl.Result{}, err
-	}
+	// Check if the JobRequest is already in a terminal phase before creating a new Job.
+	if jobRequest.Status.Phase == "" || jobRequest.Status.Phase == customv1.JobRequestPhasePending {
+		log.Info("Creating a new Job for JobRequest")
+		if err := r.Create(ctx, newJob); err != nil {
+			log.Error(err, "Failed to create new Job", "Job", client.ObjectKeyFromObject(newJob))
+			return ctrl.Result{}, err
+		}
 
-	// Job created successfully, update the status of the JobRequest
-	log.Info("JobRequest processing")
-	jobRequest.Status.Phase = customv1.JobRequestPhaseProcessing
-	if err := r.Status().Update(ctx, &jobRequest); err != nil {
-		log.Error(err, "Failed to update JobRequest status")
-		return ctrl.Result{}, err
+		// Job created successfully, update the status of the JobRequest to Processing.
+		log.Info("JobRequest processing")
+		jobRequest.Status.Phase = customv1.JobRequestPhaseProcessing
+		if err := r.Status().Update(ctx, &jobRequest); err != nil {
+			log.Error(err, "Failed to update JobRequest status to Processing")
+			return ctrl.Result{}, err
+		}
+
+		// Requeue the request to check the job status in the next reconciliation.
+		return ctrl.Result{Requeue: true}, nil
+	} else {
+		log.Info("JobRequest is in a terminal phase, skipping Job creation", "phase", jobRequest.Status.Phase)
 	}
 
 	return ctrl.Result{}, nil
