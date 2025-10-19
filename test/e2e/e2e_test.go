@@ -341,8 +341,8 @@ spec:
 			Eventually(verifyJobSucceeded).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a failed Job", func() {
-			const jobRequestName = "test-jobrequest-fail"
+		It("should handle a JobRequest that results in a RecoverableLogicError", func() {
+			const jobRequestName = "test-jobrequest-logic-error"
 			const jobRequestYAML = `
 apiVersion: custom.custom.io/v1
 kind: JobRequest
@@ -367,6 +367,15 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
 			}
+
+			By("verifying the failure reason is RecoverableLogicError")
+			verifyFailureReason := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("RecoverableLogicError"))
+			}
 			// The Job has a backoffLimit of 4, so this might take some time.
 			// We'll give it a generous timeout.
 			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
@@ -380,6 +389,85 @@ spec:
 				g.Expect(output).To(Equal("True"), "Job should have a Failed condition with status True")
 			}
 			Eventually(verifyJobFailed).Should(Succeed())
+			Eventually(verifyFailureReason).Should(Succeed())
+		})
+
+		It("should handle a JobRequest that results in a PermanentFailure", func() {
+			const jobRequestName = "test-jobrequest-permanent-fail"
+			const jobRequestYAML = `
+apiVersion: custom.custom.io/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: non-existent-registry/non-existent-image:latest
+  command: ["/bin/sh", "-c", "echo 'This will not run'"]
+`
+			By("creating a JobRequest with a bad image name")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the JobRequest status to become 'Failed'")
+			verifyJobRequestFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+			}
+			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
+
+			By("verifying the failure reason is PermanentFailure")
+			verifyFailureReason := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("PermanentFailure"))
+			}
+			Eventually(verifyFailureReason).Should(Succeed())
+		})
+
+		It("should handle a JobRequest that results in a ConflictError", func() {
+			const jobRequestName = "test-jobrequest-conflict-fail"
+			const jobRequestYAML = `
+apiVersion: custom.custom.io/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'This will not run' && cat /config/key"]
+`
+			By("creating a JobRequest that references a missing ConfigMap")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the JobRequest status to become 'Failed'")
+			verifyJobRequestFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+			}
+			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
+
+			By("verifying the failure reason is ConflictError")
+			verifyFailureReason := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("ConflictError"))
+			}
+			Eventually(verifyFailureReason).Should(Succeed())
 		})
 	})
 })

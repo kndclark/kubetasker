@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -27,11 +28,25 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
+
+// mockClient is a mock implementation of client.Client for testing error scenarios.
+type mockClient struct {
+	client.Client
+	failList bool
+}
+
+func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if m.failList {
+		return fmt.Errorf("injected list error")
+	}
+	return m.Client.List(ctx, list, opts...)
+}
 
 var _ = Describe("JobRequest Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -55,8 +70,9 @@ var _ = Describe("JobRequest Controller", func() {
 						Namespace: "default",
 					},
 					Spec: customv1.JobRequestSpec{
-						Image:   "test-image:latest",
-						Command: []string{"echo", "hello"},
+						Image:         "test-image:latest",
+						Command:       []string{"echo", "hello"},
+						RestartPolicy: "OnFailure", // Set default for tests
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -251,6 +267,63 @@ var _ = Describe("JobRequest Controller", func() {
 			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
 				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonPermanentFailure))
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+		})
+
+		It("should update status to Failed with PermanentFailure for ImagePullBackOff on Pod", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			createdJob := &batchv1.Job{}
+			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			By("Creating a mock Pod with ImagePullBackOff")
+			mockPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName + "-pod-image-pull-fail",
+					Namespace: "default",
+					Labels:    map[string]string{"job-name": jobNamespacedName.Name},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "bad-image"}}},
+			}
+			Expect(k8sClient.Create(ctx, mockPod)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
+			}()
+
+			mockPod.Status.ContainerStatuses = []corev1.ContainerStatus{
+				{
+					Name:  "main",
+					State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mockPod)).To(Succeed())
+
+			// Simulate the parent Job failing
+			createdJob.Status.Failed = 1
+			now := metav1.Now()
+			createdJob.Status.StartTime = &now
+			createdJob.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+				{
+					Type:   batchv1.JobFailureTarget,
+					Status: corev1.ConditionTrue,
+					Reason: "BackoffLimitExceeded",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedJobRequest := &customv1.JobRequest{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)).To(Succeed())
 				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
 				g.Expect(getConditionReason(updatedJobRequest, customv1.JobReady)).To(Equal(customv1.ReasonPermanentFailure))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
@@ -469,6 +542,34 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
 			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
 			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
+		})
+
+		It("should handle a pod list error gracefully", func() {
+			By("Setting up a mock client that fails on List")
+			mockClient := &mockClient{
+				Client:   k8sClient,
+				failList: true,
+			}
+			reconcilerWithMock := &JobRequestReconciler{Client: mockClient, Scheme: scheme.Scheme}
+
+			jr := &customv1.JobRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-list-error",
+					Namespace: "default",
+				},
+			}
+
+			By("Verifying fallback to TransientFailure when pod list fails")
+			reason, _ := reconcilerWithMock.determineFailureReason(ctx, jr, "some-job", &batchv1.JobCondition{
+				Reason: "BackoffLimitExceeded",
+			})
+			Expect(reason).To(Equal(customv1.ReasonTransientFailure))
+
+			By("Verifying fallback to PermanentFailure when pod list fails and JobCondition is ImagePullBackOff")
+			reason, _ = reconcilerWithMock.determineFailureReason(ctx, jr, "some-job", &batchv1.JobCondition{
+				Reason: "ImagePullBackOff",
+			})
+			Expect(reason).To(Equal(customv1.ReasonPermanentFailure))
 		})
 	})
 })

@@ -34,6 +34,12 @@ type JobRequestSpec struct {
 	// Command is the command to run inside the container.
 	// +optional
 	Command []string `json:"command,omitempty"`
+
+	// RestartPolicy defines the restart policy for the job's pods.
+	// Can be "OnFailure" or "Never". Defaults to "OnFailure".
+	// +kubebuilder:validation:Enum=OnFailure;Never
+	// +optional
+	RestartPolicy string `json:"restartPolicy,omitempty"`
 }
 
 // Define the valid phases for a JobRequest

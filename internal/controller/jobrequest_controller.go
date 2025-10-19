@@ -43,6 +43,7 @@ type JobRequestReconciler struct {
 // +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -83,46 +84,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		for _, condition := range childJob.Status.Conditions {
 			if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
 				jobFailed = true
-				// Default to transient failure if no specific reason is found.
-				failureReason = customv1.ReasonTransientFailure
-				failureMessage = "The underlying Job has failed after multiple retries."
-
-				// More specific failure reasons based on Job condition.
-				if condition.Reason == "ImagePullBackOff" || condition.Reason == "ErrImagePull" {
-					failureReason = customv1.ReasonPermanentFailure
-					failureMessage = "The underlying Job failed due to an image pull error. Please check the image name and repository credentials."
-				}
-
-				// For more detailed errors, we inspect the pods of the failed job.
-				var podList corev1.PodList
-				if err := r.List(ctx, &podList, client.InNamespace(req.Namespace), client.MatchingLabels{"job-name": jobName}); err == nil {
-					for _, pod := range podList.Items {
-						// Check for container status reasons
-						for _, containerStatus := range pod.Status.ContainerStatuses {
-							if containerStatus.State.Waiting != nil {
-								if containerStatus.State.Waiting.Reason == "CreateContainerConfigError" {
-									failureReason = customv1.ReasonConflictError
-									failureMessage = fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
-									break // Found a conflict, no need to check other containers/pods
-								}
-							}
-							if containerStatus.State.Terminated != nil {
-								// Example: Classify exit code 1 as a recoverable logic error.
-								// This can be customized based on application conventions.
-								if containerStatus.State.Terminated.ExitCode == 1 {
-									failureReason = customv1.ReasonRecoverableLogicError
-									failureMessage = fmt.Sprintf("Job failed with a recoverable logic error (exit code 1). Reason: %s", containerStatus.State.Terminated.Reason)
-									break
-								}
-							}
-						}
-						if failureReason == customv1.ReasonConflictError || failureReason == customv1.ReasonRecoverableLogicError {
-							break // Exit pod loop once a specific reason is found
-						}
-					}
-				} else {
-					log.Error(err, "Could not list pods for failed job to determine specific failure reason")
-				}
+				failureReason, failureMessage = r.determineFailureReason(ctx, &jobRequest, jobName, &condition)
 
 				break
 			}
@@ -206,7 +168,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							},
 						},
 					},
-					RestartPolicy: corev1.RestartPolicyOnFailure,
+					RestartPolicy: corev1.RestartPolicy(jobRequest.Spec.RestartPolicy),
 				},
 			},
 			BackoffLimit: new(int32), // A pointer to an int32
@@ -236,6 +198,50 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// determineFailureReason inspects the Job and its Pods to find the most specific failure reason.
+func (r *JobRequestReconciler) determineFailureReason(ctx context.Context, jobRequest *customv1.JobRequest, jobName string, jobCondition *batchv1.JobCondition) (string, string) {
+	log := logf.FromContext(ctx)
+
+	// For more detailed errors, we inspect the pods of the failed job.
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList, client.InNamespace(jobRequest.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
+		log.Error(err, "Could not list pods for failed job, falling back to job condition")
+		// If we can't list pods, fall back to the less specific Job condition.
+		if jobCondition.Reason == "ImagePullBackOff" || jobCondition.Reason == "ErrImagePull" {
+			return customv1.ReasonPermanentFailure, "The underlying Job failed due to an image pull error."
+		}
+		return customv1.ReasonTransientFailure, "The underlying Job has failed after multiple retries."
+	}
+
+	// Check for specific pod failure reasons in a hierarchical order.
+	for _, pod := range podList.Items {
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				// Configuration errors are highly specific and actionable.
+				if containerStatus.State.Waiting.Reason == "CreateContainerConfigError" {
+					return customv1.ReasonConflictError, fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
+				}
+				// Image pull errors are also a permanent, user-correctable issue.
+				if containerStatus.State.Waiting.Reason == "ImagePullBackOff" || containerStatus.State.Waiting.Reason == "ErrImagePull" {
+					return customv1.ReasonPermanentFailure, fmt.Sprintf("Job failed due to an image pull error: %s", containerStatus.State.Waiting.Message)
+				}
+			}
+			// Check for application-level errors.
+			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode == 1 {
+				return customv1.ReasonRecoverableLogicError, fmt.Sprintf("Job failed with a recoverable logic error (exit code 1). Reason: %s", containerStatus.State.Terminated.Reason)
+			}
+		}
+	}
+
+	// If no specific pod-level error is found, check the job condition again.
+	if jobCondition.Reason == "ImagePullBackOff" || jobCondition.Reason == "ErrImagePull" {
+		return customv1.ReasonPermanentFailure, "The underlying Job failed due to an image pull error."
+	}
+
+	// If no specific pod-level error is found, default to a transient failure.
+	return customv1.ReasonTransientFailure, "The underlying Job has failed after multiple retries."
 }
 
 // SetupWithManager sets up the controller with the Manager.

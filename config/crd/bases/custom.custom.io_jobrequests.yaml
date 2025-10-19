@@ -50,6 +50,14 @@ spec:
                   This field is required.
                 minLength: 1
                 type: string
+              restartPolicy:
+                description: |-
+                  RestartPolicy defines the restart policy for the job's pods.
+                  Can be "OnFailure" or "Never". Defaults to "OnFailure".
+                enum:
+                - OnFailure
+                - Never
+                type: string
             required:
             - image
             type: object
