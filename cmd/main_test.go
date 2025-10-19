@@ -85,7 +85,9 @@ func TestMainFunction(t *testing.T) {
 	buildCmd := exec.Command("go", "build", "-o", "manager_test_binary", ".")
 	err := buildCmd.Run()
 	g.Expect(err).NotTo(HaveOccurred(), "Failed to build manager binary")
-	defer os.Remove("manager_test_binary")
+	defer func() {
+		g.Expect(os.Remove("manager_test_binary")).To(Succeed())
+	}()
 	// Run the manager with a timeout
 	cmd := exec.Command("./manager_test_binary", "--metrics-bind-address=:0", "--health-probe-bind-address=:8089")
 	err = cmd.Start()
