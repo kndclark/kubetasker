@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -542,34 +541,6 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
 			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
 			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
-		})
-
-		It("should handle a pod list error gracefully", func() {
-			By("Setting up a mock client that fails on List")
-			mockClient := &mockClient{
-				Client:   k8sClient,
-				failList: true,
-			}
-			reconcilerWithMock := &JobRequestReconciler{Client: mockClient, Scheme: scheme.Scheme}
-
-			jr := &customv1.JobRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod-list-error",
-					Namespace: "default",
-				},
-			}
-
-			By("Verifying fallback to TransientFailure when pod list fails")
-			reason, _ := reconcilerWithMock.determineFailureReason(ctx, jr, "some-job", &batchv1.JobCondition{
-				Reason: "BackoffLimitExceeded",
-			})
-			Expect(reason).To(Equal(customv1.ReasonTransientFailure))
-
-			By("Verifying fallback to PermanentFailure when pod list fails and JobCondition is ImagePullBackOff")
-			reason, _ = reconcilerWithMock.determineFailureReason(ctx, jr, "some-job", &batchv1.JobCondition{
-				Reason: "ImagePullBackOff",
-			})
-			Expect(reason).To(Equal(customv1.ReasonPermanentFailure))
 		})
 	})
 })

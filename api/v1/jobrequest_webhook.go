@@ -48,6 +48,16 @@ func (r *JobRequest) Default() {
 	if r.Spec.RestartPolicy == "" {
 		r.Spec.RestartPolicy = "OnFailure"
 	}
+
+	// Default the backoff limit.
+	if r.Spec.BackoffLimit == nil {
+		if r.Spec.RestartPolicy == "Never" {
+			r.Spec.BackoffLimit = new(int32) // Defaults to 0
+		} else {
+			r.Spec.BackoffLimit = new(int32)
+			*r.Spec.BackoffLimit = 4
+		}
+	}
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.

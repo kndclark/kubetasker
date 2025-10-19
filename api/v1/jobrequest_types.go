@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,6 +41,15 @@ type JobRequestSpec struct {
 	// +kubebuilder:validation:Enum=OnFailure;Never
 	// +optional
 	RestartPolicy string `json:"restartPolicy,omitempty"`
+
+	// Env defines environment variables to set in the container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// BackoffLimit specifies the number of retries before marking this job as failed.
+	// Defaults to 4. Set to 0 to fail on the first error when RestartPolicy is Never.
+	// +optional
+	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
 
 // Define the valid phases for a JobRequest
