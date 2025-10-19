@@ -44,4 +44,30 @@ var _ = Describe("JobRequest types", func() {
 		Expect(ok).To(BeTrue())
 	})
 
+	It("should handle deep copy of a nil object", func() {
+		var original *JobRequest = nil
+		Expect(original.DeepCopy()).To(BeNil())
+	})
+
+	It("should perform deep copy of a list correctly", func() {
+		originalList := &JobRequestList{
+			Items: []JobRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-1"},
+					Spec:       JobRequestSpec{Image: "image-1"},
+				},
+			},
+		}
+
+		copiedList := originalList.DeepCopy()
+		Expect(copiedList).NotTo(BeIdenticalTo(originalList))
+		Expect(copiedList).To(Equal(originalList))
+
+		// Test DeepCopyObject for the list
+		obj := originalList.DeepCopyObject()
+		Expect(obj).NotTo(BeNil())
+		_, ok := obj.(*JobRequestList)
+		Expect(ok).To(BeTrue())
+	})
+
 })

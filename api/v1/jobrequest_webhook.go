@@ -17,6 +17,8 @@ limitations under the License.
 package v1
 
 import (
+	"errors"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -69,13 +71,24 @@ var _ webhook.Validator = &JobRequest{}
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *JobRequest) ValidateCreate() (admission.Warnings, error) {
 	jobrequestlog.Info("validate create", "name", r.Name)
-	return nil, r.validateJobRequest()
+	return nil, r.validateJobRequest().ToAggregate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *JobRequest) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	jobrequestlog.Info("validate update", "name", r.Name)
-	return nil, r.validateJobRequest()
+	oldJobRequest, ok := old.(*JobRequest)
+	if !ok {
+		return nil, field.InternalError(nil, errors.New("expected old object to be a JobRequest"))
+	}
+
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, r.validateJobRequest()...)
+
+	// Check for immutable fields
+	allErrs = append(allErrs, validateImmutableFields(r, oldJobRequest)...)
+
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -86,10 +99,18 @@ func (r *JobRequest) ValidateDelete() (admission.Warnings, error) {
 }
 
 // validateJobRequest contains the actual validation logic.
-func (r *JobRequest) validateJobRequest() error {
-	var allErrs field.ErrorList
+func (r *JobRequest) validateJobRequest() field.ErrorList {
+	var allErrs field.ErrorList //
 
-	// Example validation: Ensure the command is not empty.
+	// The image field is required.
+	if r.Spec.Image == "" {
+		allErrs = append(allErrs, field.Required(
+			field.NewPath("spec").Child("image"),
+			"image field is required",
+		))
+	}
+
+	// Ensure the command is not empty.
 	if len(r.Spec.Command) == 0 {
 		allErrs = append(allErrs, field.Invalid(
 			field.NewPath("spec").Child("command"),
@@ -99,8 +120,21 @@ func (r *JobRequest) validateJobRequest() error {
 	}
 
 	if len(allErrs) == 0 {
-		return nil
+		return nil //
 	}
 
-	return allErrs.ToAggregate()
+	return allErrs
+}
+
+// validateImmutableFields checks that immutable fields have not been changed.
+func validateImmutableFields(new, old *JobRequest) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if new.Spec.Image != old.Spec.Image {
+		allErrs = append(allErrs, field.Invalid(
+			field.NewPath("spec").Child("image"),
+			new.Spec.Image, "field is immutable"))
+	}
+
+	return allErrs
 }
