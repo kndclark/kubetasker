@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,19 +32,6 @@ import (
 
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
-
-// mockClient is a mock implementation of client.Client for testing error scenarios.
-type mockClient struct {
-	client.Client
-	failList bool
-}
-
-func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	if m.failList {
-		return fmt.Errorf("injected list error")
-	}
-	return m.Client.List(ctx, list, opts...)
-}
 
 var _ = Describe("JobRequest Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -541,6 +527,32 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
 			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
 			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
+		})
+
+		It("should requeue if the job is still processing", func() {
+			By("Reconciling to create the Job")
+			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Finding the created Job and simulating it is active")
+			createdJob := &batchv1.Job{}
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, jobNamespacedName, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			// Manually update the Job's status to Active
+			createdJob.Status.Active = 1
+			Expect(k8sClient.Status().Update(ctx, createdJob)).To(Succeed())
+
+			By("Re-reconciling the resource to observe the active state")
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
 		})
 	})
 })

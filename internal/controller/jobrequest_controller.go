@@ -72,103 +72,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var childJob batchv1.Job
 	jobName := fmt.Sprintf("%s-job", jobRequest.Name)
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: req.Namespace}, &childJob); err == nil {
-		// Job already exists. Let's check its status and update our JobRequest status.
-		log.Info("Found child Job, checking status", "Job", client.ObjectKeyFromObject(&childJob))
-
-		// Job already exists. Let's check its status and update our JobRequest status.
-		log.Info("Found child Job, checking status", "Job", client.ObjectKeyFromObject(&childJob))
-
-		// 1. Check for Job completion first. This is a terminal state.
-		if childJob.Status.Succeeded > 0 {
-			log.Info("Child Job has succeeded")
-			if jobRequest.Status.Phase != customv1.JobRequestPhaseSucceeded {
-				jobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
-				meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
-					Type:    customv1.JobReady,
-					Status:  metav1.ConditionTrue,
-					Reason:  "JobSucceeded",
-					Message: "The job completed successfully.",
-				})
-				if err := r.Status().Update(ctx, &jobRequest); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
-			return ctrl.Result{}, nil
-		}
-
-		// 2. Check for "fail-fast" conditions by inspecting Pods.
-		// This allows us to fail faster than the Job's own backoff limit.
-		podList := &corev1.PodList{}
-		if err := r.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
-			log.Error(err, "Failed to list pods for Job")
-			return ctrl.Result{}, err
-		}
-
-		for _, pod := range podList.Items {
-			// Check container statuses for definitive errors
-			for _, containerStatus := range pod.Status.ContainerStatuses {
-				if containerStatus.State.Waiting != nil {
-					reason := containerStatus.State.Waiting.Reason
-					if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "CreateContainerConfigError" {
-						var failureType, message string
-						if reason == "CreateContainerConfigError" {
-							failureType = customv1.ReasonConflictError
-							message = fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
-						} else {
-							failureType = customv1.ReasonPermanentFailure
-							message = fmt.Sprintf("Job failed due to an image pull error: %s", containerStatus.State.Waiting.Message)
-						}
-
-						log.Info("Detected permanent pod failure", "reason", reason)
-						jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-						meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
-						if err := r.Status().Update(ctx, &jobRequest); err != nil {
-							return ctrl.Result{}, err
-						}
-						return ctrl.Result{}, nil // Stop reconciliation
-					}
-				}
-				if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
-					log.Info("Detected recoverable pod failure", "exitCode", containerStatus.State.Terminated.ExitCode)
-					jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-					meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
-					if err := r.Status().Update(ctx, &jobRequest); err != nil {
-						return ctrl.Result{}, err
-					}
-					return ctrl.Result{}, nil // Stop reconciliation
-				}
-			}
-		}
-
-		// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
-		if childJob.Status.Failed > 0 {
-			log.Info("Child Job has failed according to its own status")
-			jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-
-			// Determine the reason from the Job's conditions.
-			reason := customv1.ReasonTransientFailure // Default to transient
-			message := "Job failed after reaching its backoff limit."
-			for _, cond := range childJob.Status.Conditions {
-				if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
-					if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
-						reason = customv1.ReasonPermanentFailure
-						message = "Job failed due to an image pull error."
-					}
-					break
-				}
-			}
-
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
-			if err := r.Status().Update(ctx, &jobRequest); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil // Stop reconciliation
-		}
-
-		// 4. If none of the above, the job is still processing.
-		log.Info("Child Job is still processing")
-		return ctrl.Result{RequeueAfter: time.Second * 10}, nil
-
+		return r.reconcileExistingJob(ctx, &jobRequest, &childJob)
 	} else if !errors.IsNotFound(err) {
 		// Some other error occurred when trying to get the job.
 		log.Error(err, "Failed to get child Job", "Job", jobName)
@@ -253,6 +157,100 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileExistingJob handles the logic for a JobRequest that already has an associated Job.
+func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequest *customv1.JobRequest, childJob *batchv1.Job) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	jobName := childJob.Name
+
+	// 1. Check for Job completion first. This is a terminal state.
+	if childJob.Status.Succeeded > 0 {
+		log.Info("Child Job has succeeded")
+		if jobRequest.Status.Phase != customv1.JobRequestPhaseSucceeded {
+			jobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
+			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
+				Type:    customv1.JobReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  "JobSucceeded",
+				Message: "The job completed successfully.",
+			})
+			if err := r.Status().Update(ctx, jobRequest); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 2. Check for "fail-fast" conditions by inspecting Pods.
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace(jobRequest.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
+		log.Error(err, "Failed to list pods for Job")
+		return ctrl.Result{}, err
+	}
+
+	for _, pod := range podList.Items {
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "CreateContainerConfigError" {
+					var failureType, message string
+					if reason == "CreateContainerConfigError" {
+						failureType = customv1.ReasonConflictError
+						message = fmt.Sprintf("Job failed due to a configuration error: %s", containerStatus.State.Waiting.Message)
+					} else {
+						failureType = customv1.ReasonPermanentFailure
+						message = fmt.Sprintf("Job failed due to an image pull error: %s", containerStatus.State.Waiting.Message)
+					}
+
+					log.Info("Detected permanent pod failure", "reason", reason)
+					jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+					meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
+					if err := r.Status().Update(ctx, jobRequest); err != nil {
+						return ctrl.Result{}, err
+					}
+					return ctrl.Result{}, nil // Stop reconciliation
+				}
+			}
+			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
+				log.Info("Detected recoverable pod failure", "exitCode", containerStatus.State.Terminated.ExitCode)
+				jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+				meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
+				if err := r.Status().Update(ctx, jobRequest); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil // Stop reconciliation
+			}
+		}
+	}
+
+	// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
+	if childJob.Status.Failed > 0 {
+		log.Info("Child Job has failed according to its own status")
+		jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+
+		reason := customv1.ReasonTransientFailure // Default to transient
+		message := "Job failed after reaching its backoff limit."
+		for _, cond := range childJob.Status.Conditions {
+			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+				if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
+					reason = customv1.ReasonPermanentFailure
+					message = "Job failed due to an image pull error."
+				}
+				break
+			}
+		}
+
+		meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
+		if err := r.Status().Update(ctx, jobRequest); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil // Stop reconciliation
+	}
+
+	// 4. If none of the above, the job is still processing.
+	log.Info("Child Job is still processing")
+	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
