@@ -72,7 +72,8 @@ func TestGoldenFiles(t *testing.T) {
 		t.Logf("Running helm template with release name '%s'...", helmTestReleaseName)
 		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
-		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath, "--set", "image.tag=v0.1.0")
+		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath,
+			"--set", "image.repository=controller", "--set", "image.tag=v0.1.0")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template: %s", string(output))
 
