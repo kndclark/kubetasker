@@ -59,22 +59,6 @@ func (m *mockManager) Start(ctx context.Context) error {
 	return m.Manager.Start(ctx)
 }
 
-// mockNewManager is a function that returns a mock manager or an error.
-func mockNewManager(config *rest.Config, options manager.Options) (manager.Manager, error) {
-	if mockNewManagerErr != nil {
-		return nil, mockNewManagerErr
-	}
-
-	// In our tests, the mockMgr is already configured with a real manager instance.
-	// We just need to return it. The mockMgr is responsible for overriding
-	// specific functions for each test case.
-	// If mockMgr is nil, it means the test is for a manager creation failure.
-	return mockMgr, nil
-}
-
-var mockMgr *mockManager
-var mockNewManagerErr error
-
 func TestMainFunction(t *testing.T) {
 	g := NewGomegaWithT(t)
 
@@ -102,6 +86,7 @@ func TestMainFunction(t *testing.T) {
 func TestRunFunctionErrorPaths(t *testing.T) {
 	g := NewGomegaWithT(t)
 	originalNewManager := newManager
+	// ensure test manager is restored to original value after sub-tests complete
 	defer func() { newManager = originalNewManager }()
 
 	// Create a scheme and add the necessary types for the tests.
@@ -119,22 +104,21 @@ func TestRunFunctionErrorPaths(t *testing.T) {
 	})
 	g.Expect(err).NotTo(HaveOccurred())
 
-	// Override the newManager function with our mock
-	newManager = mockNewManager
-
 	t.Run("should return error on manager creation failure", func(t *testing.T) {
-		// This test doesn't use the shared manager, it just checks the error.
-		// We set mockMgr to nil so mockNewManager returns the error.
-		mockMgr = nil
-		mockNewManagerErr = errors.New("failed to create manager")
-		defer func() { mockNewManagerErr = nil }()
+		// Use a closure to define the mock behavior for this specific test.
+		// This avoids using global variables and is safe for parallel execution.
+		newManager = func(config *rest.Config, options manager.Options) (manager.Manager, error) {
+			return nil, errors.New("failed to create manager")
+		}
+
 		// We need a dummy config for the real manager creation to not fail early
 		err := run(&rest.Config{}, testScheme, []string{"--health-probe-bind-address=:8090"})
 		g.Expect(err).To(MatchError("failed to create manager"))
 	})
 
 	t.Run("should return error on controller setup failure", func(t *testing.T) {
-		mockMgr = &mockManager{
+		// This mock manager is now scoped to just this test.
+		mockMgr := &mockManager{
 			Manager: realMgr,
 			// This mock will be triggered by SetupWithManager
 			addFn: func(r manager.Runnable) error { return errors.New("failed to add controller") },
@@ -149,7 +133,8 @@ func TestRunFunctionErrorPaths(t *testing.T) {
 	})
 
 	t.Run("should return error on health check setup failure", func(t *testing.T) {
-		mockMgr = &mockManager{
+		// This mock manager is now scoped to just this test.
+		mockMgr := &mockManager{
 			Manager: realMgr,
 			// This mock will be triggered by AddHealthzCheck
 			addHealthzCheckFn: func(name string, check healthz.Checker) error { return errors.New("healthz failed") },
@@ -165,7 +150,8 @@ func TestRunFunctionErrorPaths(t *testing.T) {
 	})
 
 	t.Run("should return error on ready check setup failure", func(t *testing.T) {
-		mockMgr = &mockManager{
+		// This mock manager is now scoped to just this test.
+		mockMgr := &mockManager{
 			Manager: realMgr,
 			// This mock will be triggered by AddReadyzCheck
 			addReadyzCheckFn: func(name string, check healthz.Checker) error { return errors.New("readyz failed") },
@@ -184,7 +170,8 @@ func TestRunFunctionErrorPaths(t *testing.T) {
 	})
 
 	t.Run("should return error on manager start failure", func(t *testing.T) {
-		mockMgr = &mockManager{
+		// This mock manager is now scoped to just this test.
+		mockMgr := &mockManager{
 			Manager: realMgr,
 			// This mock will be triggered by Start
 			startFn: func(ctx context.Context) error { return errors.New("start failed") },
