@@ -694,7 +694,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: kubetasker-selfsigned-issuer
-  secretName: webhook-server-cert
+  secretName: metrics-server-cert
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

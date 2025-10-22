@@ -65,7 +65,9 @@ func TestGoldenFiles(t *testing.T) {
 		versionCmd := exec.Command("helm", "version")
 		versionOutput, err := versionCmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run 'helm version': %s", string(versionOutput))
-		require.Contains(t, string(versionOutput), expectedHelmVersion, "Incorrect helm version found. Expected %s.", expectedHelmVersion)
+		require.Contains(t, string(versionOutput),
+			expectedHelmVersion,
+			"Incorrect helm version found. Expected %s.", expectedHelmVersion)
 		t.Logf("Helm version %s confirmed.", expectedHelmVersion)
 
 		// Run helm template
@@ -84,7 +86,8 @@ func TestGoldenFiles(t *testing.T) {
 		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
 
 		t.Log("Comparing helm output with golden file...")
-		require.Equal(t, string(expected), string(output), "Helm output does not match the golden file. Run 'make golden-update' to update it.")
+		require.Equal(t, string(expected), string(output),
+			"Helm output does not match the golden file. Run 'make golden-update' to update it.")
 	})
 }
 
