@@ -57,6 +57,19 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: golden-update
+golden-update: ## Update golden manifest files for tests.
+	@echo "--- Updating kustomize golden file..."
+	kustomize build config/default > test/golden/kustomize_golden.yaml
+	@echo "--- Updating helm golden file..."
+	helm template kubetasker-test ./kubetasker-controller --set image.tag=v0.1.0 > test/golden/helm_golden.yaml
+
+.PHONY: golden-diff
+golden-diff: ## Show the differences between kustomize and helm golden files for manual review.
+	@echo "--- Diffing kustomize vs. helm golden files..."
+	@echo "NOTE: Differences are expected due to Helm's naming and labeling conventions."
+	@diff -u test/golden/kustomize_golden.yaml test/golden/helm_golden.yaml || true
+
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running unit and integration tests"

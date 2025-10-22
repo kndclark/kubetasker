@@ -1,0 +1,69 @@
+---
+# Source: kubetasker-controller/templates/deployment.yaml
+# Note: This file was copied from config/manager/manager.yaml and adapted for Helm.
+# It no longer contains the Namespace resource, which should be managed by Helm itself.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubetasker-test-kubetasker-controller
+  namespace: default
+  labels:
+    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: kubetasker-test
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+    control-plane: controller-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubetasker-controller
+      app.kubernetes.io/instance: kubetasker-test
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubetasker-controller
+        app.kubernetes.io/instance: kubetasker-test
+        control-plane: controller-manager
+    spec:
+      serviceAccountName: kubetasker-test-kubetasker-controller
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: manager
+        command:
+        - /manager
+        args:
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        image: "controller:v0.1.0"
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      terminationGracePeriodSeconds: 10
