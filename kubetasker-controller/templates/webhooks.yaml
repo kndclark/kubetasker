@@ -1,0 +1,60 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-mutating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "kubetasker-controller.fullname" . }}-serving-cert"
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-custom-custom-io-v1-jobrequest
+  failurePolicy: Fail
+  name: mjobrequest.kb.io
+  rules:
+  - apiGroups:
+    - custom.custom.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - jobrequests
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-validating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "kubetasker-controller.fullname" . }}-serving-cert"
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-custom-custom-io-v1-jobrequest
+  failurePolicy: Fail
+  name: vjobrequest.kb.io
+  rules:
+  - apiGroups:
+    - custom.custom.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - jobrequests
+  sideEffects: None
