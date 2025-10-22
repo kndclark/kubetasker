@@ -102,12 +102,16 @@ var _ = Describe("Manager", Ordered, func() {
 		}
 
 		By("undeploying the controller-manager")
-		// Helm uninstall might fail if install failed, so ignore errors
-		_ = exec.Command("helm", "uninstall", helmReleaseName, "--namespace", namespace).Run()
+		cmd = exec.Command("helm", "uninstall", helmReleaseName, "--namespace", namespace)
+		if _, err := utils.Run(cmd); err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "warning: failed to uninstall helm release: %v\n", err)
+		}
 
 		By("removing manager namespace")
-		// Kubectl delete ns might fail if namespace is already gone, so ignore errors
-		_ = exec.Command("kubectl", "delete", "ns", namespace).Run()
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found")
+		if _, err := utils.Run(cmd); err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "warning: failed to delete namespace: %v\n", err)
+		}
 	})
 
 	// After each test, check for failures and collect logs, events,

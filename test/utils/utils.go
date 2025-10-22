@@ -29,11 +29,9 @@ import (
 )
 
 const (
-	certmanagerVersion = "v1.18.2"
-	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
-
-	defaultKindBinary  = "kind"
-	defaultKindCluster = "kind"
+	certManagerManifest = "test/e2e/vendor/cert-manager.yaml"
+	defaultKindBinary   = "kind"
+	defaultKindCluster  = "kind"
 )
 
 func warnError(err error) {
@@ -60,8 +58,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	cmd := exec.Command("kubectl", "delete", "-f", certManagerManifest)
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -82,8 +79,7 @@ func UninstallCertManager() {
 
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
+	cmd := exec.Command("kubectl", "apply", "-f", certManagerManifest)
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
