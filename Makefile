@@ -62,7 +62,7 @@ golden-update: ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
-	helm template kubetasker-test ./kubetasker-controller --set image.tag=v0.1.0 > test/golden/helm_golden.yaml
+	helm template kubetasker-test ./kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
 
 .PHONY: golden-diff
 golden-diff: ## Show the differences between kustomize and helm golden files for manual review.

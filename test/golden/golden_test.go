@@ -66,8 +66,8 @@ func TestGoldenFiles(t *testing.T) {
 		t.Logf("Running helm template with release name '%s'...", helmTestReleaseName)
 		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
-		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath,
-			"--set", "image.repository=controller", "--set", "image.tag=v0.1.0")
+		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath, "--set",
+			"image.repository=ktasker.com/kubetasker", "--set", "image.tag=v0.0.1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template: %s", string(output))
 
@@ -85,6 +85,21 @@ func TestGoldenFiles(t *testing.T) {
 
 func getProjectRoot() (string, error) {
 	// A simple way to find the project root is by looking for the go.mod file.
-	// This makes the test runnable from any subdirectory.
-	return filepath.Abs("../..")
+	// This makes the test runnable from any subdirectory. This implementation
+	// is inspired by the GetProjectDir function in the test/utils package.
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		goModPath := filepath.Join(currentDir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return currentDir, nil
+		}
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			return "", os.ErrNotExist
+		}
+		currentDir = parentDir
+	}
 }

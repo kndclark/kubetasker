@@ -641,7 +641,7 @@ spec:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
-        image: "controller:v0.1.0"
+        image: "ktasker.com/kubetasker:v0.0.1"
         imagePullPolicy: IfNotPresent
         securityContext:
           allowPrivilegeEscalation: false
