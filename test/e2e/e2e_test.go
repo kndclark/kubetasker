@@ -481,6 +481,42 @@ spec:
 			}
 			Eventually(verifyJobDeleted, 60*time.Second).Should(Succeed())
 		})
+
+		It("should be rejected by the validating webhook when updating immutable fields", func() {
+			const jobRequestName = "test-jobrequest-webhook"
+			const jobRequestYAML = `
+apiVersion: task.ktasker.com/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'webhook test'"]
+`
+			By("creating a JobRequest for the webhook test")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait a moment for the object to be fully persisted.
+			time.Sleep(2 * time.Second)
+
+			By("attempting to update an immutable field (spec.image)")
+			// The image field is often immutable. The webhook should reject this change.
+			// We use 'kubectl patch' for a direct update attempt.
+			patch := `{"spec":{"image":"nginx"}}`
+			cmd = exec.Command("kubectl", "patch", "jobrequest", jobRequestName,
+				"-n", namespace, "--type=merge", "-p", patch)
+
+			// We expect this command to fail.
+			output, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "The validating webhook should reject the update.")
+
+			// Check for the specific error message from the webhook.
+			Expect(output).To(ContainSubstring("admission webhook \"vjobrequest.kb.io\" denied the request"))
+		})
 	})
 })
 
