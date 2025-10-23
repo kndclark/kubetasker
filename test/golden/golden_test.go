@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kndclark/kubetasker/test/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ const (
 func TestGoldenFiles(t *testing.T) {
 	// Get the root of the project
 	t.Log("Finding project root...")
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := utils.GetProjectDir()
 	require.NoError(t, err, "Failed to get project root")
 	t.Logf("Project root found at: %s", projectRoot)
 
@@ -81,25 +82,4 @@ func TestGoldenFiles(t *testing.T) {
 		require.Equal(t, string(expected), string(output),
 			"Helm output does not match the golden file. Run 'make golden-update' to update it.")
 	})
-}
-
-func getProjectRoot() (string, error) {
-	// A simple way to find the project root is by looking for the go.mod file.
-	// This makes the test runnable from any subdirectory. This implementation
-	// is inspired by the GetProjectDir function in the test/utils package.
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		goModPath := filepath.Join(currentDir, "go.mod")
-		if _, err := os.Stat(goModPath); err == nil {
-			return currentDir, nil
-		}
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			return "", os.ErrNotExist
-		}
-		currentDir = parentDir
-	}
 }

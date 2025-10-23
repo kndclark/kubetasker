@@ -40,9 +40,9 @@ type JobRequestReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/finalizers,verbs=update
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 

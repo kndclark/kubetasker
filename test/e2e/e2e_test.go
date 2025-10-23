@@ -20,6 +20,7 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -168,32 +169,36 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetricsServerStarted).Should(Succeed())
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
+			// Define the pod override as a Go struct for better readability and type safety
+			override := podOverride{
+				Spec: podSpec{
+					Containers: []containerSpec{
+						{
+							Name:    "curl",
+							Image:   "curlimages/curl:latest",
+							Command: []string{"curl", "-v", "-k", "-H", fmt.Sprintf("Authorization: Bearer %s", token), fmt.Sprintf("https://%s.%s.svc.cluster.local:8443/metrics", metricsServiceName, namespace)},
+							SecurityContext: securityContext{
+								ReadOnlyRootFilesystem:   true,
+								AllowPrivilegeEscalation: false,
+								Capabilities:             capabilities{Drop: []string{"ALL"}},
+								RunAsNonRoot:             false,
+								RunAsUser:                0,
+								SeccompProfile:           seccompProfile{Type: "Unconfined"},
+							},
+						},
+					},
+					ControllerFullName: controllerFullName,
+				},
+			}
+
+			overrideBytes, err := json.Marshal(override)
+			Expect(err).NotTo(HaveOccurred(), "Failed to marshal pod override")
+
 			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
 				"--namespace", namespace,
 				"--image=curlimages/curl:latest",
 				"--overrides",
-				fmt.Sprintf(`{
-					"spec": {
-						"containers": [{
-							"name": "curl",
-							"image": "curlimages/curl:latest",
-							"command": ["curl", "-v", "-k", "-H", "Authorization: Bearer %s", "https://%s.%s.svc.cluster.local:8443/metrics"],
-							"securityContext": {
-								"readOnlyRootFilesystem": true,
-								"allowPrivilegeEscalation": false,
-								"capabilities": {
-									"drop": ["ALL"]
-								},
-								"runAsNonRoot": false,
-								"runAsUser": 0,
-								"seccompProfile": {
-									"type": "Unconfined"
-								}
-							}
-						}],
-						"controllerFullName": "%s"
-					}
-				}`, token, metricsServiceName, namespace, controllerFullName))
+				string(overrideBytes))
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to run curl-metrics pod")
 
@@ -260,7 +265,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should handle a JobRequest that results in a successful Job", func() { // Test for successful job
 			const jobRequestName = "test-jobrequest-success"
 			const jobRequestYAML = `
-apiVersion: custom.custom.io/v1 
+apiVersion: task.ktasker.com/v1
 kind: JobRequest
 metadata:
   name: %s
@@ -299,7 +304,7 @@ spec:
 		It("should handle a JobRequest that results in a RecoverableLogicError", func() { // Test for recoverable logic error
 			const jobRequestName = "test-jobrequest-logic-error"
 			const jobRequestYAML = `
-apiVersion: custom.custom.io/v1
+apiVersion: task.ktasker.com/v1
 kind: JobRequest
 metadata:
   name: %s
@@ -351,7 +356,7 @@ spec:
 		It("should handle a JobRequest that results in a PermanentFailure", func() { // Test for permanent failure
 			const jobRequestName = "test-jobrequest-permanent-fail"
 			const jobRequestYAML = `
-apiVersion: custom.custom.io/v1
+apiVersion: task.ktasker.com/v1
 kind: JobRequest
 metadata:
   name: %s
@@ -391,7 +396,7 @@ spec:
 		It("should handle a JobRequest that results in a ConflictError", func() { // Test for conflict error
 			const jobRequestName = "test-jobrequest-conflict-fail"
 			const jobRequestYAML = `
-apiVersion: custom.custom.io/v1
+apiVersion: task.ktasker.com/v1
 kind: JobRequest
 metadata:
   name: %s
@@ -434,6 +439,48 @@ spec:
 			}
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
+
+		It("should clean up the Job when a JobRequest is deleted", func() {
+			const jobRequestName = "test-jobrequest-cleanup"
+			const jobName = jobRequestName + "-job"
+			const jobRequestYAML = `
+apiVersion: task.ktasker.com/v1
+kind: JobRequest
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'Cleanup test'"]
+`
+			By("creating a JobRequest for the cleanup test")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the underlying Job to be created")
+			verifyJobCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobName, "-n", namespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Job should be created by the controller")
+			}
+			Eventually(verifyJobCreated, 60*time.Second).Should(Succeed())
+
+			By("deleting the JobRequest")
+			cmd = exec.Command("kubectl", "delete", "jobrequest", jobRequestName, "-n", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the underlying Job is garbage collected")
+			verifyJobDeleted := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobName, "-n", namespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "Job should be deleted after JobRequest is deleted")
+				g.Expect(err.Error()).To(ContainSubstring("not found"))
+			}
+			Eventually(verifyJobDeleted, 60*time.Second).Should(Succeed())
+		})
 	})
 })
 
@@ -466,6 +513,40 @@ type tokenRequest struct {
 	Status struct {
 		Token string `json:"token"`
 	} `json:"status"`
+}
+
+// Helper structs for creating the pod override JSON
+type podOverride struct {
+	Spec podSpec `json:"spec"`
+}
+
+type podSpec struct {
+	Containers         []containerSpec `json:"containers"`
+	ControllerFullName string          `json:"controllerFullName"`
+}
+
+type containerSpec struct {
+	Name            string          `json:"name"`
+	Image           string          `json:"image"`
+	Command         []string        `json:"command"`
+	SecurityContext securityContext `json:"securityContext"`
+}
+
+type securityContext struct {
+	ReadOnlyRootFilesystem   bool           `json:"readOnlyRootFilesystem"`
+	AllowPrivilegeEscalation bool           `json:"allowPrivilegeEscalation"`
+	Capabilities             capabilities   `json:"capabilities"`
+	RunAsNonRoot             bool           `json:"runAsNonRoot"`
+	RunAsUser                int            `json:"runAsUser"`
+	SeccompProfile           seccompProfile `json:"seccompProfile"`
+}
+
+type capabilities struct {
+	Drop []string `json:"drop"`
+}
+
+type seccompProfile struct {
+	Type string `json:"type"`
 }
 
 // logDebugInfoOnFailure checks if the spec failed and, if so, logs debugging information

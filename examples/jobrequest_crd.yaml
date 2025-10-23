@@ -2,10 +2,10 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   # name must match the spec fields below, and be in the form: <plural>.<group>
-  name: jobrequests.custom.io
+  name: jobrequests.task.ktasker.com
 spec:
   # group name to use for REST API: /apis/<group>/<version>
-  group: custom.io
+  group: task.ktasker.com
   # list of versions supported by this CRD
   versions:
     - name: v1
