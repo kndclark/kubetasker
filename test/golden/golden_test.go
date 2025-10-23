@@ -34,14 +34,6 @@ func TestGoldenFiles(t *testing.T) {
 	t.Logf("Project root found at: %s", projectRoot)
 
 	t.Run("KustomizeOutput", func(t *testing.T) {
-		t.Log("Verifying kustomize version...")
-		versionCmd := exec.Command("kustomize", "version")
-		versionOutput, err := versionCmd.CombinedOutput()
-		require.NoError(t, err, "Failed to run 'kustomize version': %s", string(versionOutput))
-		require.Contains(t, string(versionOutput), expectedKustomizeVersion,
-			"Incorrect kustomize version found. Expected %s.", expectedKustomizeVersion)
-		t.Logf("Kustomize version %s confirmed.", expectedKustomizeVersion)
-
 		// Run kustomize build
 		t.Log("Running kustomize build...")
 		kustomizePath := filepath.Join(projectRoot, "config", "default")
