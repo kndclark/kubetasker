@@ -229,6 +229,10 @@ spec:
                 - OnFailure
                 - Never
                 type: string
+              serviceAccountName:
+                description: ServiceAccountName is the name of the ServiceAccount
+                  to use to run this job.
+                type: string
             required:
             - image
             type: object

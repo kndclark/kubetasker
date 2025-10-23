@@ -50,6 +50,10 @@ type JobRequestSpec struct {
 	// Defaults to 4. Set to 0 to fail on the first error when RestartPolicy is Never.
 	// +optional
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
+
+	// ServiceAccountName is the name of the ServiceAccount to use to run this job.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // Define the valid phases for a JobRequest

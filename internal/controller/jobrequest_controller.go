@@ -102,6 +102,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
+					ServiceAccountName: jobRequest.Spec.ServiceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:    "job-container",

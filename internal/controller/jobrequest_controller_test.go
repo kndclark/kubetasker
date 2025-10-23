@@ -55,9 +55,10 @@ var _ = Describe("JobRequest Controller", func() {
 						Namespace: "default",
 					},
 					Spec: customv1.JobRequestSpec{
-						Image:         "test-image:latest",
-						Command:       []string{"echo", "hello"},
-						RestartPolicy: "OnFailure", // Set default for tests
+						Image:              "test-image:latest",
+						Command:            []string{"echo", "hello"},
+						RestartPolicy:      "OnFailure", // Set default for tests
+						ServiceAccountName: "test-sa",
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -125,6 +126,7 @@ var _ = Describe("JobRequest Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 
 			Expect(createdJob.Spec.Template.Spec.Containers[0].Image).To(Equal("test-image:latest"))
+			Expect(createdJob.Spec.Template.Spec.ServiceAccountName).To(Equal("test-sa"))
 		})
 
 		It("should update the JobRequest status to Succeeded when the Job completes", func() {
