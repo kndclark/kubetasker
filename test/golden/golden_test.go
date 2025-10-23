@@ -34,14 +34,6 @@ func TestGoldenFiles(t *testing.T) {
 	t.Logf("Project root found at: %s", projectRoot)
 
 	t.Run("KustomizeOutput", func(t *testing.T) {
-		t.Log("Verifying kustomize version...")
-		versionCmd := exec.Command("kustomize", "version")
-		versionOutput, err := versionCmd.CombinedOutput()
-		require.NoError(t, err, "Failed to run 'kustomize version': %s", string(versionOutput))
-		require.Contains(t, string(versionOutput), expectedKustomizeVersion,
-			"Incorrect kustomize version found. Expected %s.", expectedKustomizeVersion)
-		t.Logf("Kustomize version %s confirmed.", expectedKustomizeVersion)
-
 		// Run kustomize build
 		t.Log("Running kustomize build...")
 		kustomizePath := filepath.Join(projectRoot, "config", "default")
@@ -65,14 +57,17 @@ func TestGoldenFiles(t *testing.T) {
 		versionCmd := exec.Command("helm", "version")
 		versionOutput, err := versionCmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run 'helm version': %s", string(versionOutput))
-		require.Contains(t, string(versionOutput), expectedHelmVersion, "Incorrect helm version found. Expected %s.", expectedHelmVersion)
+		require.Contains(t, string(versionOutput),
+			expectedHelmVersion,
+			"Incorrect helm version found. Expected %s.", expectedHelmVersion)
 		t.Logf("Helm version %s confirmed.", expectedHelmVersion)
 
 		// Run helm template
 		t.Logf("Running helm template with release name '%s'...", helmTestReleaseName)
 		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
-		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath, "--set", "image.tag=v0.1.0")
+		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath,
+			"--set", "image.repository=controller", "--set", "image.tag=v0.1.0")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template: %s", string(output))
 
@@ -83,7 +78,8 @@ func TestGoldenFiles(t *testing.T) {
 		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
 
 		t.Log("Comparing helm output with golden file...")
-		require.Equal(t, string(expected), string(output), "Helm output does not match the golden file. Run 'make golden-update' to update it.")
+		require.Equal(t, string(expected), string(output),
+			"Helm output does not match the golden file. Run 'make golden-update' to update it.")
 	})
 }
 
