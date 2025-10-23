@@ -40,9 +40,9 @@ type JobRequestReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=custom.custom.io,resources=jobrequests/finalizers,verbs=update
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
@@ -102,6 +102,7 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
+					ServiceAccountName: jobRequest.Spec.ServiceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:    "job-container",
@@ -183,10 +184,51 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 	}
 
 	// 2. Check for "fail-fast" conditions by inspecting Pods.
+	if updated, err := r.checkPodFailures(ctx, jobRequest, jobName); err != nil || updated {
+		if err != nil {
+			log.Error(err, "Failed to check pod failures")
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
+	if childJob.Status.Failed > 0 {
+		log.Info("Child Job has failed according to its own status")
+		if jobRequest.Status.Phase != customv1.JobRequestPhaseFailed {
+			jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+
+			reason := customv1.ReasonTransientFailure // Default to transient
+			message := "Job failed after reaching its backoff limit."
+			for _, cond := range childJob.Status.Conditions {
+				if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+					if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
+						reason = customv1.ReasonPermanentFailure
+						message = "Job failed due to an image pull error."
+					}
+					break
+				}
+			}
+
+			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
+			if err := r.Status().Update(ctx, jobRequest); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil // Stop reconciliation
+	}
+
+	// 4. If none of the above, the job is still processing.
+	log.Info("Child Job is still processing")
+	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+// checkPodFailures inspects the pods of a job for fail-fast conditions.
+// It returns true if the JobRequest status was updated, and an error if one occurred.
+func (r *JobRequestReconciler) checkPodFailures(ctx context.Context, jobRequest *customv1.JobRequest, jobName string) (bool, error) {
+	log := logf.FromContext(ctx)
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, client.InNamespace(jobRequest.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
-		log.Error(err, "Failed to list pods for Job")
-		return ctrl.Result{}, err
+		return false, fmt.Errorf("failed to list pods for Job: %w", err)
 	}
 
 	for _, pod := range podList.Items {
@@ -207,9 +249,9 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 					jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
 					meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
 					if err := r.Status().Update(ctx, jobRequest); err != nil {
-						return ctrl.Result{}, err
+						return false, err
 					}
-					return ctrl.Result{}, nil // Stop reconciliation
+					return true, nil // Status updated, stop further reconciliation
 				}
 			}
 			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
@@ -217,40 +259,13 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 				jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
 				meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
 				if err := r.Status().Update(ctx, jobRequest); err != nil {
-					return ctrl.Result{}, err
+					return false, err
 				}
-				return ctrl.Result{}, nil // Stop reconciliation
+				return true, nil // Status updated, stop further reconciliation
 			}
 		}
 	}
-
-	// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
-	if childJob.Status.Failed > 0 {
-		log.Info("Child Job has failed according to its own status")
-		jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-
-		reason := customv1.ReasonTransientFailure // Default to transient
-		message := "Job failed after reaching its backoff limit."
-		for _, cond := range childJob.Status.Conditions {
-			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
-				if cond.Reason == "ImagePullBackOff" || cond.Reason == "ErrImagePull" {
-					reason = customv1.ReasonPermanentFailure
-					message = "Job failed due to an image pull error."
-				}
-				break
-			}
-		}
-
-		meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
-		if err := r.Status().Update(ctx, jobRequest); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil // Stop reconciliation
-	}
-
-	// 4. If none of the above, the job is still processing.
-	log.Info("Child Job is still processing")
-	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+	return false, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

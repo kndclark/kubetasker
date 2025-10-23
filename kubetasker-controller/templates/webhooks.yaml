@@ -15,12 +15,12 @@ webhooks:
     service:
       name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /mutate-custom-custom-io-v1-jobrequest
+      path: /mutate-task-ktasker-com-v1-jobrequest
   failurePolicy: Fail
   name: mjobrequest.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:
@@ -46,12 +46,12 @@ webhooks:
     service:
       name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /validate-custom-custom-io-v1-jobrequest
+      path: /validate-task-ktasker-com-v1-jobrequest
   failurePolicy: Fail
   name: vjobrequest.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kndclark/kubetasker/test/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ const (
 func TestGoldenFiles(t *testing.T) {
 	// Get the root of the project
 	t.Log("Finding project root...")
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := utils.GetProjectDir()
 	require.NoError(t, err, "Failed to get project root")
 	t.Logf("Project root found at: %s", projectRoot)
 
@@ -66,8 +67,8 @@ func TestGoldenFiles(t *testing.T) {
 		t.Logf("Running helm template with release name '%s'...", helmTestReleaseName)
 		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
-		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath,
-			"--set", "image.repository=controller", "--set", "image.tag=v0.1.0")
+		cmd := exec.Command("helm", "template", helmTestReleaseName, chartPath, "--set",
+			"image.repository=ktasker.com/kubetasker", "--set", "image.tag=v0.0.1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template: %s", string(output))
 
@@ -81,10 +82,4 @@ func TestGoldenFiles(t *testing.T) {
 		require.Equal(t, string(expected), string(output),
 			"Helm output does not match the golden file. Run 'make golden-update' to update it.")
 	})
-}
-
-func getProjectRoot() (string, error) {
-	// A simple way to find the project root is by looking for the go.mod file.
-	// This makes the test runnable from any subdirectory.
-	return filepath.Abs("../..")
 }

@@ -25,7 +25,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
   - jobrequests
   verbs:
@@ -37,13 +37,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
   - jobrequests/finalizers
   verbs:
   - update
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
   - jobrequests/status
   verbs:

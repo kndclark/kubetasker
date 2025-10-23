@@ -633,7 +633,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: example.com/kubetasker:v0.0.1
+        image: ktasker.com/kubetasker:v0.0.1
         livenessProbe:
           httpGet:
             path: /healthz
@@ -694,7 +694,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: kubetasker-selfsigned-issuer
-  secretName: metrics-server-cert
+  secretName: webhook-server-cert
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

@@ -136,5 +136,11 @@ func validateImmutableFields(new, old *JobRequest) field.ErrorList {
 			new.Spec.Image, "field is immutable"))
 	}
 
+	if new.Spec.ServiceAccountName != old.Spec.ServiceAccountName {
+		allErrs = append(allErrs, field.Invalid(
+			field.NewPath("spec").Child("serviceAccountName"),
+			new.Spec.ServiceAccountName, "field is immutable"))
+	}
+
 	return allErrs
 }

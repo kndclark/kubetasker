@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: jobrequests.custom.custom.io
+  name: jobrequests.task.ktasker.com
 spec:
-  group: custom.custom.io
+  group: task.ktasker.com
   names:
     kind: JobRequest
     listKind: JobRequestList
@@ -220,6 +220,10 @@ spec:
                 enum:
                 - OnFailure
                 - Never
+                type: string
+              serviceAccountName:
+                description: ServiceAccountName is the name of the ServiceAccount
+                  to use to run this job.
                 type: string
             required:
             - image
