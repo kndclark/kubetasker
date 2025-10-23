@@ -115,46 +115,7 @@ var _ = Describe("Manager", Ordered, func() {
 	// and pod descriptions for debugging.
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
-		if specReport.Failed() && controllerPodName != "" { // Only fetch logs if controllerPodName is known
-			By("Fetching controller manager pod logs")
-			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
-			controllerLogs, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s", err)
-			}
-
-			By("Fetching Kubernetes events")
-			cmd = exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp")
-			eventsOutput, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err)
-			}
-
-			// Only fetch curl-metrics logs if the pod was created
-			if _, err := utils.Run(exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace)); err == nil {
-				By("Fetching curl-metrics logs")
-				cmd = exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
-				metricsOutput, err := utils.Run(cmd)
-				if err == nil {
-					_, _ = fmt.Fprintf(GinkgoWriter, "Metrics logs:\n %s", metricsOutput)
-				} else {
-					_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get curl-metrics logs: %s", err)
-				}
-			}
-
-			By("Fetching controller manager pod description")
-			cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", namespace)
-			podDescription, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Pod description:\n%s", podDescription)
-			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to describe controller pod: %s", err)
-			}
-		}
+		logDebugInfoOnFailure(specReport, controllerPodName)
 	})
 
 	SetDefaultEventuallyTimeout(2 * time.Minute)
@@ -505,4 +466,43 @@ type tokenRequest struct {
 	Status struct {
 		Token string `json:"token"`
 	} `json:"status"`
+}
+
+// logDebugInfoOnFailure checks if the spec failed and, if so, logs debugging information
+// such as controller logs, events, and pod descriptions.
+func logDebugInfoOnFailure(specReport SpecReport, controllerPodName string) {
+	if !specReport.Failed() {
+		return
+	}
+
+	// Helper to run and log a command, writing output to GinkgoWriter
+	logCommand := func(description string, cmd *exec.Cmd) {
+		By(description)
+		output, err := utils.Run(cmd)
+		if err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Failed to run command for '%s': %v\n", description, err)
+			return
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter, "%s:\n%s\n", description, output)
+	}
+
+	if controllerPodName != "" {
+		logCommand("Fetching controller manager pod logs",
+			exec.Command("kubectl", "logs", controllerPodName, "-n", namespace))
+
+		logCommand("Fetching controller manager pod description",
+			exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", namespace))
+	} else {
+		_, _ = fmt.Fprintln(GinkgoWriter, "Controller pod name not available, skipping pod-specific logs.")
+	}
+
+	logCommand("Fetching Kubernetes events",
+		exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp"))
+
+	// Check if the curl-metrics pod exists before trying to get its logs
+	checkCurlPodCmd := exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found")
+	if output, err := utils.Run(checkCurlPodCmd); err == nil && strings.Contains(output, "curl-metrics") {
+		logCommand("Fetching curl-metrics logs",
+			exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace))
+	}
 }
