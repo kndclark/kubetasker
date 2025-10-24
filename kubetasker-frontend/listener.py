@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 import logging
 import json
+import os
 from typing import List, Optional
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
@@ -66,16 +67,35 @@ class JobRequestPayload(BaseModel):
 
 app = FastAPI()
 
-# Load Kubernetes configuration
-try:
-    # Try to load in-cluster configuration
-    config.load_incluster_config()
-except config.ConfigException:
-    # Fallback to kube-config for local development
-    config.load_kube_config()
+# This will be initialized at startup
+custom_objects_api = None
 
-# API clients
-custom_objects_api = client.CustomObjectsApi()
+@app.on_event("startup")
+def configure_kubernetes_client():
+    """
+    Load Kubernetes configuration at application startup.
+    This allows the app to start even if a cluster is not available.
+    """
+    global custom_objects_api
+    # For local development, allow fallback to kube_config and even no config.
+    if os.getenv("KUBETASKER_ENV") == "development":
+        try:
+            config.load_incluster_config()
+            log.info("Loaded in-cluster Kubernetes configuration.")
+        except config.ConfigException:
+            try:
+                log.info("In-cluster config failed. Falling back to kube-config.")
+                config.load_kube_config()
+                log.info("Loaded local kube-config configuration.")
+            except config.ConfigException:
+                log.warning("Could not load any Kubernetes configuration. API endpoints that interact with the cluster will fail.")
+                return # custom_objects_api will remain None
+    else:
+        # In production, we must load in-cluster config. Fail fast if we can't.
+        config.load_incluster_config()
+        log.info("Loaded in-cluster Kubernetes configuration.")
+
+    custom_objects_api = client.CustomObjectsApi()
 
 # Allow external systems to check if app is running/ working
 @app.get("/healthz")
@@ -91,6 +111,8 @@ def create_job_request(job_request: JobRequestPayload):
     '''
     Accept POST /jobrequest to create a new JobRequest CRD.
     '''
+    if custom_objects_api is None:
+        raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
     log.info(f"Received request to create JobRequest '{job_request.metadata.name}' in namespace '{job_request.metadata.namespace}'")
     try:
         # Convert the Pydantic model back to a dict for the k8s client.
@@ -115,6 +137,8 @@ def list_job_requests(namespace: str = "default"):
     '''
     Provide GET endpoint for querying JobRequest statuses in a given namespace.
     '''
+    if custom_objects_api is None:
+        raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
     log.info(f"Received request to list JobRequests in namespace '{namespace}'")
     try:
         api_response = custom_objects_api.list_namespaced_custom_object(
@@ -134,6 +158,8 @@ def get_job_request(job_name: str, namespace: str = "default"):
     '''
     Provide GET endpoint for querying a single JobRequest's status in a given namespace.
     '''
+    if custom_objects_api is None:
+        raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
     log.info(f"Received request to get JobRequest '{job_name}' in namespace '{namespace}'")
     try:
         api_response = custom_objects_api.get_namespaced_custom_object(
