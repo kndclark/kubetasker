@@ -60,7 +60,8 @@ def test_create_job_request(setup_app_and_mock_k8s_client):
         "apiVersion": "task.ktasker.com/v1",
         "kind": "JobRequest",
         "metadata": {"name": "test-job-1", "namespace": "test-ns"},
-        "spec": {"image": "busybox", "command": ["echo", "test"]},
+        "spec": {"image": "busybox", "command": ["echo", "test"], 
+                 'env': None, 'restartPolicy': 'OnFailure'},
     }
     # Mock the API response from the Kubernetes client
     mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = job_request_payload.copy()

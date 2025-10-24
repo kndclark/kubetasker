@@ -1,7 +1,28 @@
 
 from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel, Field
+from typing import List, Optional
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
+
+
+# Pydantic models for data validation and API documentation
+class ObjectMeta(BaseModel):
+    name: str
+    namespace: str = "default"
+
+class JobRequestSpec(BaseModel):
+    image: str
+    command: Optional[List[str]] = None
+    # A full implementation would model the EnvVar spec, but this is a good start.
+    env: Optional[List[dict]] = None
+    restart_policy: str = Field("OnFailure", alias="restartPolicy")
+
+class JobRequestPayload(BaseModel):
+    api_version: str = Field(..., alias="apiVersion")
+    kind: str
+    metadata: ObjectMeta
+    spec: JobRequestSpec
 
 
 app = FastAPI()
@@ -27,18 +48,20 @@ def health_check():
 
 # Create a new JobRequest custom resource.
 @app.post("/jobrequest")
-def create_job_request(job_request: dict):
+def create_job_request(job_request: JobRequestPayload):
     '''
     Accept POST /jobrequest to create a new JobRequest CRD.
     '''
     try:
-        namespace = job_request.get("metadata", {}).get("namespace", "default")
+        # Convert the Pydantic model back to a dict for the k8s client.
+        # `by_alias=True` ensures fields like `restartPolicy` use their correct names.
+        job_request_dict = job_request.model_dump(by_alias=True)
         api_response = custom_objects_api.create_namespaced_custom_object(
             group="task.ktasker.com",
             version="v1",
-            namespace=namespace,
+            namespace=job_request.metadata.namespace,
             plural="jobrequests",
-            body=job_request,
+            body=job_request_dict,
         )
         return {"message": "JobRequest submitted", "job_request": api_response}
     except ApiException as e:
