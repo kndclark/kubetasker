@@ -1,13 +1,14 @@
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 import pytest
+import json
 
 # We need to import the real kubernetes.client.exceptions here
 # to create a mock ApiException that behaves like the real one.
 # This import must happen outside any patching of `sys.modules['kubernetes']`
 # if we want to use the real ApiException type.
 from kubernetes.client.exceptions import ApiException as RealApiException
-
+from pydantic import ValidationError
 @pytest.fixture(autouse=True)
 def setup_app_and_mock_k8s_client():
     """
@@ -21,7 +22,12 @@ def setup_app_and_mock_k8s_client():
     mock_kubernetes.client = MagicMock()
     mock_kubernetes.config = MagicMock()
     # Assign the real ApiException type to the mock's exceptions module
-    mock_kubernetes.client.exceptions.ApiException = RealApiException
+    # We need to mock the body attribute to be a JSON string
+    class MockApiException(RealApiException):
+        def __init__(self, status=0, reason=None, http_resp=None, body="{}"):
+            super().__init__(status, reason, http_resp)
+            self.body = body
+    mock_kubernetes.client.exceptions.ApiException = MockApiException
 
     # Patch the config loading functions to do nothing.
     # These patches are active during the import of `listener.py`.
@@ -61,7 +67,7 @@ def test_create_job_request(setup_app_and_mock_k8s_client):
         "kind": "JobRequest",
         "metadata": {"name": "test-job-1", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"], 
-                 'env': None, 'restartPolicy': 'OnFailure'},
+                 'restartPolicy': 'OnFailure'},
     }
     # Mock the API response from the Kubernetes client
     mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = job_request_payload.copy()
@@ -81,6 +87,46 @@ def test_create_job_request(setup_app_and_mock_k8s_client):
         plural="jobrequests",
         body=job_request_payload,
     )
+
+def test_create_job_request_validation_error(setup_app_and_mock_k8s_client):
+    """
+    Tests that the POST /jobrequest endpoint returns a 422 on validation failure.
+    """
+    _, client = setup_app_and_mock_k8s_client
+
+    # Payload missing the required 'image' field in spec
+    invalid_payload = {
+        "apiVersion": "task.ktasker.com/v1",
+        "kind": "JobRequest",
+        "metadata": {"name": "test-job-invalid"},
+        "spec": {"command": ["echo", "test"]},
+    }
+
+    response = client.post("/jobrequest", json=invalid_payload)
+
+    assert response.status_code == 422
+    response_json = response.json()
+    assert "detail" in response_json
+    assert response_json["detail"][0]["msg"] == "Field required"
+    assert response_json["detail"][0]["loc"] == ["body", "spec", "image"]
+
+def test_create_job_request_bad_api_version(setup_app_and_mock_k8s_client):
+    """
+    Tests that the custom apiVersion validator rejects incorrect versions.
+    """
+    _, client = setup_app_and_mock_k8s_client
+
+    invalid_payload = {
+        "apiVersion": "task.ktasker.com/v2", # Incorrect version
+        "kind": "JobRequest",
+        "metadata": {"name": "test-job-invalid-api"},
+        "spec": {"image": "busybox"},
+    }
+
+    response = client.post("/jobrequest", json=invalid_payload)
+
+    assert response.status_code == 422
+    assert 'apiVersion must be' in response.text and 'task.ktasker.com/v1' in response.text
 
 
 def test_list_job_requests(setup_app_and_mock_k8s_client):
@@ -130,7 +176,7 @@ def test_get_job_request_not_found(setup_app_and_mock_k8s_client):
     """Tests the GET /jobrequest/{job_name} endpoint when the resource is not found."""
     # Configure the mock to raise an ApiException when called
     # Use the real ApiException type for the side_effect
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = RealApiException(status=404)
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = mock_k8s_client.client.exceptions.ApiException(status=404)
 
     response = client.get("/jobrequest/not-found-job?namespace=test-ns")
 
