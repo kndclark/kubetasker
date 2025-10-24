@@ -19,6 +19,8 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+PYTHON=python3
+
 .PHONY: all
 all: build
 
@@ -48,6 +50,13 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: pyenv
+pyenv: ## create python venv for running the API
+	$(PYTHON) -m venv .kubetasker_pyenv && \
+		source .kubetasker_pyenv/bin/activate && \
+		$(PYTHON) -m ensurepip --upgrade && \
+		$(PYTHON) -m pip install -r requirements.txt
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
