@@ -20,6 +20,7 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 PYTHON=python3
+PYVENV=.kubetasker_pyenv
 
 .PHONY: all
 all: build
@@ -53,10 +54,11 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 .PHONY: pyenv
 pyenv: ## create python venv for running the API
-	$(PYTHON) -m venv .kubetasker_pyenv && \
-		source .kubetasker_pyenv/bin/activate && \
-		$(PYTHON) -m ensurepip --upgrade && \
-		$(PYTHON) -m pip install -r requirements.txt
+	rm -rf $(PYVENV) && \
+	$(PYTHON) -m venv $(PYVENV) && \
+		source $(PYVENV)/bin/activate && \
+		$(PYVENV)/bin/pip install --upgrade pip && \
+		$(PYVENV)/bin/pip install -r requirements.txt
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
