@@ -38,6 +38,6 @@ jobs:
         run: |
           make pyenv
       - name: Run Python tests
-        run: 
+        run: |
           source .kubetasker_pyenv/bin/activate
           pytest kubetasker-frontend/
