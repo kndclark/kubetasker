@@ -1,101 +1,137 @@
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
-import os
-import tempfile
+import pytest
 
-from listener import app
+# We need to import the real kubernetes.client.exceptions here
+# to create a mock ApiException that behaves like the real one.
+# This import must happen outside any patching of `sys.modules['kubernetes']`
+# if we want to use the real ApiException type.
+from kubernetes.client.exceptions import ApiException as RealApiException
 
-client = TestClient(app)
+@pytest.fixture(autouse=True)
+def setup_app_and_mock_k8s_client():
+    """
+    Pytest fixture to set up the FastAPI app and mock the Kubernetes client.
+    This fixture ensures that `listener.py` is imported within a patched context,
+    preventing module-level errors related to Kubernetes config loading.
+    `autouse=True` ensures it's used for every test in this module.
+    """
+    # Create a mock structure that mimics the real kubernetes library's layout
+    mock_kubernetes = MagicMock()
+    mock_kubernetes.client = MagicMock()
+    mock_kubernetes.config = MagicMock()
+    # Assign the real ApiException type to the mock's exceptions module
+    mock_kubernetes.client.exceptions.ApiException = RealApiException
 
-def test_health_check():
+    # Patch the config loading functions to do nothing.
+    # These patches are active during the import of `listener.py`.
+    with patch('kubernetes.config.load_incluster_config'), \
+         patch('kubernetes.config.load_kube_config'):
+        # Patch sys.modules to ensure listener.py gets our mock for the client API
+        with patch.dict('sys.modules', {
+            'kubernetes': mock_kubernetes,
+            'kubernetes.client': mock_kubernetes.client,
+            'kubernetes.config': mock_kubernetes.config,
+            'kubernetes.client.exceptions': mock_kubernetes.client.exceptions,
+        }):
+            # Import app *within* the patched context
+            from listener import app
+            # Initialize client *within* the patched context
+            test_client = TestClient(app)
+
+            # Yield the mock_kubernetes object and the test_client
+            yield mock_kubernetes, test_client
+
+def test_health_check(setup_app_and_mock_k8s_client):
     """
     Tests the /healthz endpoint.
     """
+    _, client = setup_app_and_mock_k8s_client
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-
-@patch("subprocess.run")
-@patch("os.remove")
-@patch("tempfile.NamedTemporaryFile")
-def test_create_job_request(mock_tempfile, mock_os_remove, mock_subprocess_run):
+def test_create_job_request(setup_app_and_mock_k8s_client):
+    mock_k8s_client, client = setup_app_and_mock_k8s_client
     """
-    Tests the POST /jobrequest endpoint, mocking the file write and kubectl call.
+    Tests the POST /jobrequest endpoint, mocking the Kubernetes client call.
     """
-    # Mock the temporary file
-    mock_file = MagicMock()
-    mock_file.__enter__.return_value.name = "temp_job.yaml"
-    mock_tempfile.return_value = mock_file
-
-    # Mock the subprocess call
-    mock_process = MagicMock()
-    mock_process.stdout = "jobrequest.task.ktasker.com/test-job-1 created"
-    mock_process.returncode = 0  # Simulate a successful command execution
-    mock_process.check_returncode.return_value = None # Mock the check for `check=True`
-    mock_subprocess_run.return_value = mock_process
-
     job_request_payload = {
         "apiVersion": "task.ktasker.com/v1",
         "kind": "JobRequest",
-        "metadata": {"name": "test-job-1"},
+        "metadata": {"name": "test-job-1", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"]},
     }
+    # Mock the API response from the Kubernetes client
+    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = job_request_payload.copy()
 
     response = client.post("/jobrequest", json=job_request_payload)
 
     # Assertions
     assert response.status_code == 200
     assert response.json()["message"] == "JobRequest submitted"
-    assert response.json()["job_request"] == job_request_payload
+    assert response.json()["job_request"] == job_request_payload # The mock returns the payload
 
-    # Verify that a temporary file was created
-    mock_tempfile.assert_called_once()
-
-    # Verify that kubectl apply was called
-    mock_subprocess_run.assert_called_once_with(
-        ["kubectl", "apply", "-f", "temp_job.yaml"],
-        capture_output=True, text=True, check=True
+    # Verify that the k8s client was called correctly
+    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_called_once_with(
+        group="task.ktasker.com",
+        version="v1",
+        namespace="test-ns",
+        plural="jobrequests",
+        body=job_request_payload,
     )
 
-    # Verify that os.remove was called to clean up the temp file
-    mock_os_remove.assert_called_once_with("temp_job.yaml")
 
-
-@patch("subprocess.run")
-def test_list_job_requests(mock_subprocess_run):
+def test_list_job_requests(setup_app_and_mock_k8s_client):
+    mock_k8s_client, client = setup_app_and_mock_k8s_client
     """
-    Tests the GET /jobrequest endpoint, mocking the kubectl call.
+    Tests the GET /jobrequest endpoint, mocking the Kubernetes client call.
     """
-    # Create a mock return value for the subprocess call
-    mock_kubectl_output = '{"items": [{"metadata": {"name": "test-job-1"}}]}'
-    mock_process = MagicMock()
-    mock_process.stdout = mock_kubectl_output 
-    mock_process.check_returncode.return_value = None
-    mock_subprocess_run.return_value = mock_process
+    mock_k8s_response = {"items": [{"metadata": {"name": "test-job-1"}}]} #.copy()
+    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
 
-    response = client.get("/jobrequest")
+    response = client.get("/jobrequest?namespace=test-ns")
 
     assert response.status_code == 200
-    assert response.text == mock_kubectl_output
+    assert response.json() == mock_k8s_response
 
-    # Verify that kubectl get was called
-    mock_subprocess_run.assert_called_once_with(
-        ["kubectl", "get", "jobrequests", "-o", "json"], capture_output=True, text=True, check=True
+    # Verify that the k8s client was called correctly.
+    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.assert_called_once_with(
+        group="task.ktasker.com",
+        version="v1",
+        namespace="test-ns",
+        plural="jobrequests",
     )
 
-@patch("subprocess.run")
-def test_get_job_request(mock_subprocess_run):
+
+def test_get_job_request(setup_app_and_mock_k8s_client):
+    mock_k8s_client, client = setup_app_and_mock_k8s_client
     """Tests the GET /jobrequest/{job_name} endpoint."""
-    mock_kubectl_output = '{"metadata": {"name": "test-job-1"}}'
-    mock_subprocess_run.return_value.check_returncode.return_value = None
-    mock_subprocess_run.return_value.stdout = mock_kubectl_output
+    mock_k8s_response = {"metadata": {"name": "test-job-1"}} #.copy()
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.return_value = mock_k8s_response.copy()
 
-    response = client.get("/jobrequest/test-job-1")
+    response = client.get("/jobrequest/test-job-1?namespace=test-ns")
 
     assert response.status_code == 200
-    assert response.text == mock_kubectl_output
-    mock_subprocess_run.assert_called_once_with(
-        ["kubectl", "get", "jobrequest", "test-job-1", "-o", "json"],
-        capture_output=True, text=True, check=True
+    assert response.json() == mock_k8s_response
+
+    # Verify that the k8s client was called correctly.
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.assert_called_once_with(
+        group="task.ktasker.com",
+        version="v1",
+        name="test-job-1",
+        namespace="test-ns",
+        plural="jobrequests",
     )
+
+def test_get_job_request_not_found(setup_app_and_mock_k8s_client):
+    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    """Tests the GET /jobrequest/{job_name} endpoint when the resource is not found."""
+    # Configure the mock to raise an ApiException when called
+    # Use the real ApiException type for the side_effect
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = RealApiException(status=404)
+
+    response = client.get("/jobrequest/not-found-job?namespace=test-ns")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
