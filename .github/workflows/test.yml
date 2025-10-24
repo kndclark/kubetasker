@@ -40,4 +40,4 @@ jobs:
       - name: Run Python tests
         run: |
           source .kubetasker_pyenv/bin/activate
-          pytest kubetasker-frontend/
+          pytest kubetasker-frontend/ -vvrA
