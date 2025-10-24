@@ -8,9 +8,9 @@ kind: Role
 metadata:
   name: job-listener-role
 rules:
-- apiGroups: ["custom.io"] # The apiGroup for the JobRequest CRD.
+- apiGroups: ["task.ktasker.com"] # The apiGroup for the JobRequest CRD.
   resources: ["jobrequests"]
-  verbs: ["get", "list", "apply", "create", "patch"] # "apply" is not a verb, it maps to create/patch.
+  verbs: ["get", "list", "create", "patch"] # "apply" maps to create/patch.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
