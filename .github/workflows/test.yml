@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  test-controller:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
     steps:
@@ -22,3 +22,21 @@ jobs:
           go mod tidy
           make golden-update
           make test
+  test-frontend:
+    name: Run Frontend Tests on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          make pyenv
+          source .kubetasker_pyenv/bin/activate
+      - name: Run Python tests
+        run: pytest kubetasker-frontend/
