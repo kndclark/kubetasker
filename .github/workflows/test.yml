@@ -37,6 +37,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           make pyenv
-          source .kubetasker_pyenv/bin/activate
       - name: Run Python tests
-        run: pytest kubetasker-frontend/
+        run: 
+          source .kubetasker_pyenv/bin/activate
+          pytest kubetasker-frontend/
