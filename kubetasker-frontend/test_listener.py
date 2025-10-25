@@ -46,25 +46,42 @@ def setup_app_and_mock_k8s_client():
         # Import app and the dependency function within the patched context
         from listener import app, get_k8s_api
 
+        def _create_api_exception_side_effect(status, reason, body_dict):
+            """
+            Factory to create a side_effect function that raises an ApiException.
+            This simplifies mocking API errors in tests.
+            """
+            exception_body = json.dumps(body_dict)
+            mock_resp = MagicMock()
+            mock_resp.status = status
+            mock_resp.reason = reason
+            
+            # The lambda ensures a fresh exception is raised on each call.
+            return lambda *args, **kwargs: _raise_exception(
+                mock_kubernetes.client.exceptions.ApiException(
+                    status=status, body=exception_body, http_resp=mock_resp
+                )
+            )
+
         # Override the dependency with our mock client
         app.dependency_overrides[get_k8s_api] = lambda: mock_kubernetes.client.CustomObjectsApi()
         
         test_client = TestClient(app)
 
-        # Yield the mock_kubernetes object and the test_client
-        yield mock_kubernetes, test_client
+        # Yield the mock, client, and the helper function
+        yield mock_kubernetes, test_client, _create_api_exception_side_effect
 
 def test_health_check(setup_app_and_mock_k8s_client):
     """
     Tests the /healthz endpoint.
     """
-    _, client = setup_app_and_mock_k8s_client
+    _, client, _ = setup_app_and_mock_k8s_client
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 def test_create_job_request(setup_app_and_mock_k8s_client):
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
     """
     Tests the POST /jobrequest endpoint, mocking the Kubernetes client call.
     """
@@ -98,7 +115,7 @@ def test_create_job_request_validation_error(setup_app_and_mock_k8s_client):
     """
     Tests that the POST /jobrequest endpoint returns a 422 on validation failure.
     """
-    _, client = setup_app_and_mock_k8s_client
+    _, client, _ = setup_app_and_mock_k8s_client
 
     # Payload missing the required 'image' field in spec
     invalid_payload = {
@@ -120,7 +137,7 @@ def test_create_job_request_bad_api_version(setup_app_and_mock_k8s_client):
     """
     Tests that the custom apiVersion validator rejects incorrect versions.
     """
-    _, client = setup_app_and_mock_k8s_client
+    _, client, _ = setup_app_and_mock_k8s_client
 
     invalid_payload = {
         "apiVersion": "task.ktasker.com/v2", # Incorrect version
@@ -138,34 +155,27 @@ def test_create_job_request_conflict(setup_app_and_mock_k8s_client):
     """
     Tests that POST /jobrequest returns a 409 on conflict (resource already exists).
     """
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
     job_request_payload = {
         "apiVersion": "task.ktasker.com/v1",
         "kind": "JobRequest",
         "metadata": {"name": "test-job-conflict", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"], 'restartPolicy': 'OnFailure'},
     }
-
-    # Mock an HTTP response object to pass to the ApiException
-    mock_http_resp = MagicMock()
-    mock_http_resp.status = 409
-    mock_http_resp.reason = "Conflict"
-    exception_body = json.dumps({"message": "jobrequests.task.ktasker.com \"test-job-conflict\" already exists"})
-
-    # Configure the mock to raise a 409 conflict exception
-    # Use a lambda to ensure a new, properly initialized exception is raised on each call.
-    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = lambda *args, **kwargs: _raise_exception(mock_k8s_client.client.exceptions.ApiException(
-            status=409,
-            body=exception_body,
-            http_resp=mock_http_resp,
-    ))
+    
+    # Use the helper to configure the mock exception
+    side_effect = create_api_exception(
+        status=409, reason="Conflict", 
+        body_dict={"message": "jobrequests.task.ktasker.com \"test-job-conflict\" already exists"}
+    )
+    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
 
     response = client.post("/jobrequest", json=job_request_payload)
     assert response.status_code == 409
     assert "already exists" in response.text
 
 def test_list_job_requests(setup_app_and_mock_k8s_client):
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
     """
     Tests the GET /jobrequest endpoint, mocking the Kubernetes client call.
     """
@@ -189,7 +199,7 @@ def test_list_job_requests_default_namespace(setup_app_and_mock_k8s_client):
     """
     Tests that GET /jobrequest uses the 'default' namespace if none is provided.
     """
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
     mock_k8s_response = {"items": [{"metadata": {"name": "test-job-default-ns"}}]}
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
 
@@ -211,25 +221,20 @@ def test_list_job_requests_api_error(setup_app_and_mock_k8s_client):
     """
     Tests that GET /jobrequest handles generic API errors from Kubernetes.
     """
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
-    mock_http_resp = MagicMock()
-    mock_http_resp.status = 500
-    mock_http_resp.reason = "Internal Server Error"
-    exception_body = json.dumps({"message": "the server has a problem"})
+    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
 
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = lambda *args, **kwargs: _raise_exception(mock_k8s_client.client.exceptions.ApiException(
-            status=500,
-            reason="Internal Server Error",
-            body=exception_body,
-            http_resp=mock_http_resp,
-    ))
+    side_effect = create_api_exception(
+        status=500, reason="Internal Server Error", 
+        body_dict={"message": "the server has a problem"}
+    )
+    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = side_effect
 
     response = client.get("/jobrequest?namespace=test-ns")
     assert response.status_code == 500
     assert "the server has a problem" in response.text
 
 def test_get_job_request(setup_app_and_mock_k8s_client):
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
     """Tests the GET /jobrequest/{job_name} endpoint."""
     mock_k8s_response = {"metadata": {"name": "test-job-1"}} #.copy()
     mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.return_value = mock_k8s_response.copy()
@@ -249,19 +254,15 @@ def test_get_job_request(setup_app_and_mock_k8s_client):
     )
 
 def test_get_job_request_not_found(setup_app_and_mock_k8s_client):
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
+    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
     """Tests the GET /jobrequest/{job_name} endpoint when the resource is not found."""
-    # Configure the mock to raise an ApiException when called
-    # Use the real ApiException type for the side_effect
-    mock_http_resp = MagicMock()
-    mock_http_resp.status = 404
-    mock_http_resp.reason = "Not Found"
-    exception_body = json.dumps({"message": "not found"})
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = lambda *args, **kwargs: _raise_exception(mock_k8s_client.client.exceptions.ApiException(
-        status=404,
-        body=exception_body,
-        http_resp=mock_http_resp
-    ))
+
+    side_effect = create_api_exception(
+        status=404, 
+        reason="Not Found", 
+        body_dict={"message": "not found"}
+    )
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
 
     response = client.get("/jobrequest/not-found-job?namespace=test-ns")
 
@@ -272,18 +273,14 @@ def test_get_job_request_api_error(setup_app_and_mock_k8s_client):
     """
     Tests that GET /jobrequest/{job_name} handles generic API errors.
     """
-    mock_k8s_client, client = setup_app_and_mock_k8s_client
-    mock_http_resp = MagicMock()
-    mock_http_resp.status = 503
-    mock_http_resp.reason = "Service Unavailable"
-    exception_body = json.dumps({"message": "etcd is down"})
+    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
 
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = lambda *args, **kwargs: _raise_exception(mock_k8s_client.client.exceptions.ApiException(
-            status=503,
-            reason="Service Unavailable",
-            body=exception_body,
-            http_resp=mock_http_resp,
-    ))
+    side_effect = create_api_exception(
+        status=503, 
+        reason="Service Unavailable", 
+        body_dict={"message": "etcd is down"}
+    )
+    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
 
     response = client.get("/jobrequest/some-job?namespace=test-ns")
     assert response.status_code == 503
