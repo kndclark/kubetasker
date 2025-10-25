@@ -1,6 +1,11 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 
+# Image URL for the frontend service
+FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1
+
+CLUSTER_NAME = kubetasker
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -62,6 +67,11 @@ pyenv: ## create python venv for running the API
 		source $(PYVENV)/bin/activate && \
 		$(PYVENV)/bin/pip install --upgrade pip && \
 		$(PYVENV)/bin/pip install -r requirements.txt
+
+.PHONY: cluster
+cluster:
+	$(KIND) cluster create --name $(CLUSTER_NAME)
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -161,16 +171,48 @@ docker-clean: ## stop and remove docker image completely
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-.PHONY: docker-build-frontend
-docker-build-frontend: ## build frontend API container standalone (outside kubernetes, typically for dev)
+.PHONY: docker-build-frontend-dev
+docker-build-frontend-dev: ## build frontend API container standalone (outside kubernetes, typically for dev)
 	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
 	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
 
+.PHONY: docker-build-frontend
+docker-build-frontend: ## Build the frontend API container image.
+	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(FRONTEND)/Dockerfile ./$(FRONTEND)
+
+.PHONY: load-docker-frontend
+load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
+	$(KIND) load docker-image $(FRONTEND_IMG) --name $(CLUSTER_NAME)
+
+.PHONY: deploy-frontend
+deploy-frontend: docker-build-frontend load-docker-frontend ## Deploy or update the frontend service in the current cluster.
+	@echo "--- Applying frontend deployment manifest..."
+	$(KUBECTL) apply -f $(FRONTEND)/deployment.yaml
+	@echo "--- Restarting frontend deployment to apply image changes..."
+	$(KUBECTL) rollout restart deployment $(FRONTEND)
+
+.PHONY: update-cluster-frontend
+update-cluster-frontend: deploy-frontend
+
+.PHONY: docker-push-frontend
+docker-push-frontend: ## Push the frontend API container image.
+	$(CONTAINER_TOOL) push $(FRONTEND_IMG)
+
+.PHONY: run-frontend-local
+run-frontend-local: ## Build and run the frontend API container locally for development.
+	# Ensure we are building with the correct tag for local run
+	$(MAKE) docker-build-frontend FRONTEND_IMG=$(FRONTEND):latest
+	# Stop and remove any existing container with the same name
+	-$(CONTAINER_TOOL) stop $(FRONTEND) > /dev/null 2>&1 || true
+	-$(CONTAINER_TOOL) rm $(FRONTEND) > /dev/null 2>&1 || true
+	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) --name $(FRONTEND) $(FRONTEND):latest
+
 .PHONY: docker-clean-frontend
-docker-clean-frontend: ## stop and remove frontend API container completely
-	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
-	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
-	$(CONTAINER_TOOL) rmi $(FRONTEND)
+docker-clean-frontend: ## Stop and remove the running frontend container and its images.
+	-$(CONTAINER_TOOL) stop $(FRONTEND) > /dev/null 2>&1 || true
+	-$(CONTAINER_TOOL) rm $(FRONTEND) > /dev/null 2>&1 || true
+	-$(CONTAINER_TOOL) rmi $(FRONTEND_IMG) > /dev/null 2>&1 || true
+	-$(CONTAINER_TOOL) rmi $(FRONTEND):latest > /dev/null 2>&1 || true
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

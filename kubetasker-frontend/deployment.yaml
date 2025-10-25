@@ -1,33 +1,83 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubetasker-frontend-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubetasker-frontend-role
+rules:
+- apiGroups: ["task.ktasker.com"]
+  resources: ["jobrequests"]
+  verbs: ["get", "list", "create"] # Permissions needed by the listener.py API endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubetasker-frontend-rb
+subjects:
+- kind: ServiceAccount
+  name: kubetasker-frontend-sa
+roleRef:
+  kind: Role
+  name: kubetasker-frontend-role
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: job-listener-deployment
+  name: kubetasker-frontend
+  labels:
+    app: kubetasker-frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: job-listener
+      app: kubetasker-frontend
   template:
     metadata:
       labels:
-        app: job-listener
+        app: kubetasker-frontend
     spec:
-      serviceAccountName: job-listener-sa # Use the service account with kubectl permissions
+      serviceAccountName: kubetasker-frontend-sa
       containers:
-      - name: job-listener-container
-        image: simple-api:latest 
-        imagePullPolicy: IfNotPresent # Tells K8s to use a local image and not pull from a registry
+      - name: frontend-container
+        # TODO: Replace this with the actual image name that gets built and pushed.
+        # e.g., your-docker-hub-username/kubetasker-frontend:v0.0.1
+        image: ktasker.com/kubetasker-frontend:v0.0.1
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
+          name: http
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 8000
+            port: http
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 8000
+            port: http
           initialDelaySeconds: 5
           periodSeconds: 5
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubetasker-frontend-service
+spec:
+  selector:
+    app: kubetasker-frontend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: http
