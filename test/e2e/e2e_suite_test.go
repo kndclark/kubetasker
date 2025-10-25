@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -40,9 +41,13 @@ var (
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
 	isCertManagerAlreadyInstalled = false
 
+	kindClusterName = "kubetasker-test-e2e"
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
 	projectImage = "ktasker.com/kubetasker:v0.0.1"
+	// frontendImage is the name of the frontend API service image.
+	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
+	projectRootDir string
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -56,16 +61,30 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	var err error
+	projectRootDir, err = utils.GetProjectDir()
+	Expect(err).NotTo(HaveOccurred(), "Failed to get project root dir")
+
 	By("building the manager(Operator) image")
 	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
-	_, err := utils.Run(cmd)
+	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+
+	By("building the frontend API image")
+	frontendDir := filepath.Join(projectRootDir, "kubetasker-frontend")
+	dockerfilePath := filepath.Join(frontendDir, "Dockerfile")
+	cmd = exec.Command("docker", "build", "-t", frontendImage, "-f", dockerfilePath, frontendDir)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the frontend API image")
 
 	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
 	// built and available before running the tests. Also, remove the following block.
 	By("loading the manager(Operator) image on Kind")
-	err = utils.LoadImageToKindClusterWithName(projectImage)
+	err = utils.LoadImageToKindClusterWithName(kindClusterName, projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+	By("loading the frontend API image on Kind")
+	err = utils.LoadImageToKindClusterWithName(kindClusterName, frontendImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the frontend API image into Kind")
 
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
