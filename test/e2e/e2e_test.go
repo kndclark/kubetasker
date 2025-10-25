@@ -294,35 +294,61 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should have a healthy frontend API service", func() {
 			By("verifying the frontend service is accessible within the cluster")
 			verifyFrontendHealth := func(g Gomega) {
-				// Create a temporary pod to test connectivity to the frontend service.
-				// This is a multi-step but robust way to check in-cluster connectivity.
-				podName := "curl-frontend-test"
 				curlCmd := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
-
-				// 1. Create the pod.
-				cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
-					"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
-				_, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to create curl test pod")
-
-				// 2. Wait for the pod to be running.
-				waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
-					"--namespace", namespace, "--timeout=60s")
-				_, err = utils.Run(waitCmd)
-				g.Expect(err).NotTo(HaveOccurred(), "Curl test pod did not become ready")
-
-				// 3. Execute the curl command inside the pod.
-				execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", curlCmd)
-				output, err := utils.Run(execCmd)
+				output, err := runInCurlPod("curl-health-check", curlCmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("200"))
-
-				// 4. Clean up the pod.
-				deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace)
-				_, _ = utils.Run(deleteCmd) // We don't need to check the error on cleanup.
 			}
 			// It might take a moment for the service and endpoints to become fully available.
 			Eventually(verifyFrontendHealth, "2m").Should(Succeed())
+		})
+
+		It("should create a JobRequest via the frontend API and see it succeed", func() {
+			const jobRequestName = "test-jr-via-frontend"
+			const jobName = jobRequestName + "-job"
+			// JSON payload for the JobRequest. Note the escaping for the shell command.
+			jobRequestJSON := fmt.Sprintf(`{
+				"apiVersion": "task.ktasker.com/v1",
+				"kind": "JobRequest",
+				"metadata": {
+					"name": "%s",
+					"namespace": "%s"
+				},
+				"spec": {
+					"image": "busybox",
+					"command": ["/bin/sh", "-c", "echo 'Hello from frontend test'; exit 0"]
+				}
+			}`, jobRequestName, namespace)
+
+			// The JSON must be a compact, single-line string to be safely passed
+			// inside the shell command for curl.
+			jobRequestJSON = strings.ReplaceAll(jobRequestJSON, "\n", "")
+			jobRequestJSON = strings.ReplaceAll(jobRequestJSON, "\t", "")
+
+			By("posting a new JobRequest to the frontend service")
+			// Use a temporary pod to send a POST request to the frontend service.
+			// Multi-step approach done to avoid shell fragility.
+			posterPodName := "curl-poster"
+			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/jobrequest -o /dev/null -w %%{http_code}",
+				jobRequestJSON, frontendServiceName, namespace)
+			output, err := runInCurlPod(posterPodName, shellCmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
+
+			By("verifying the underlying Job is created and completes successfully")
+			verifyJobSucceeded := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobName,
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='Complete')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "Job should have a Complete condition with status True")
+			}
+			// Give it enough time for the controller to reconcile and the job to run.
+			Eventually(verifyJobSucceeded, "2m").Should(Succeed())
+
+			// Cleanup the JobRequest
+			cmd := exec.Command("kubectl", "delete", "jobrequest", jobRequestName, "-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
 		})
 
 		It("should handle a JobRequest that results in a successful Job", func() { // Test for successful job
@@ -597,6 +623,36 @@ func serviceAccountToken() (string, error) {
 	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
 
 	return strings.TrimSpace(token), nil
+}
+
+// runInCurlPod creates a temporary pod with a curl image, waits for it to be ready,
+// executes a given shell command inside it, and then cleans up the pod.
+// It returns the stdout of the executed command or an error.
+func runInCurlPod(podName, shellCmd string) (string, error) {
+	// 1. Create the pod that sleeps, providing a stable target for exec.
+	cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
+		"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("failed to create curl pod %s: %w", podName, err)
+	}
+
+	// 2. Defer the cleanup to ensure the pod is deleted even if subsequent steps fail.
+	defer func() {
+		deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace, "--ignore-not-found")
+		_, _ = utils.Run(deleteCmd)
+	}()
+
+	// 3. Wait for the pod to become ready.
+	waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
+		"--namespace", namespace, "--timeout=60s")
+	if _, err := utils.Run(waitCmd); err != nil {
+		return "", fmt.Errorf("curl pod %s did not become ready: %w", podName, err)
+	}
+
+	// 4. Execute the provided command inside the pod.
+	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
+	output, err := utils.Run(execCmd)
+	return output, err
 }
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.
