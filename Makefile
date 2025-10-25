@@ -4,8 +4,6 @@ IMG ?= controller:latest
 # Image URL for the frontend service
 FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1
 
-CLUSTER_NAME = kubetasker
-
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -70,7 +68,7 @@ pyenv: ## create python venv for running the API
 
 .PHONY: cluster
 cluster:
-	$(KIND) cluster create --name $(CLUSTER_NAME)
+	$(KIND) cluster create --name $(KIND_CLUSTER)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -104,7 +102,8 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= kubetasker-test-e2e
+KIND_CLUSTER = kubetasker
+KIND_CLUSTER_DEV ?= kubetasker-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -113,21 +112,21 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 		exit 1; \
 	}
 	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
+		*"$(KIND_CLUSTER_DEV)"*) \
+			echo "Kind cluster '$(KIND_CLUSTER_DEV)' already exists. Skipping creation." ;; \
 		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+			echo "Creating Kind cluster '$(KIND_CLUSTER_DEV)'..."; \
+			$(KIND) create cluster --name $(KIND_CLUSTER_DEV) ;; \
 	esac
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@$(KIND) delete cluster --name $(KIND_CLUSTER_DEV)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -182,7 +181,7 @@ docker-build-frontend: ## Build the frontend API container image.
 
 .PHONY: load-docker-frontend
 load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
-	$(KIND) load docker-image $(FRONTEND_IMG) --name $(CLUSTER_NAME)
+	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER)
 
 .PHONY: deploy-frontend
 deploy-frontend: docker-build-frontend load-docker-frontend ## Deploy or update the frontend service in the current cluster.

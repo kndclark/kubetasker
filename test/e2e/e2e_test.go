@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +38,8 @@ const (
 	helmReleaseName        = "kubetasker-e2e"
 	controllerFullName     = helmReleaseName + "-kubetasker-controller"
 	metricsRoleBindingName = helmReleaseName + "-metrics-binding"
+	frontendDeploymentName = "kubetasker-frontend"
+	frontendServiceName    = "kubetasker-frontend-service"
 )
 
 var _ = Describe("Manager", Ordered, func() {
@@ -67,9 +70,16 @@ var _ = Describe("Manager", Ordered, func() {
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(projectImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(projectImage, ":")[1]),
+			"--set", "image.pullPolicy=IfNotPresent",
 			"--wait")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("deploying the frontend API service")
+		frontendManifestPath := filepath.Join(projectRootDir, "kubetasker-frontend", "deployment.yaml")
+		cmd = exec.Command("kubectl", "apply", "-n", namespace, "-f", frontendManifestPath)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the frontend API service")
 
 		By("verifying the controller-manager pod is running")
 		verifyControllerUp := func(g Gomega) {
@@ -86,6 +96,18 @@ var _ = Describe("Manager", Ordered, func() {
 			controllerPodName = podNames[0]
 		}
 		Eventually(verifyControllerUp).Should(Succeed())
+
+		By("verifying the frontend pod is running")
+		verifyFrontendUp := func(g Gomega) {
+			// Use `kubectl wait` for a more reliable check. This ensures the pod is not only
+			// running but also ready to receive traffic before we proceed.
+			cmd := exec.Command("kubectl", "wait", "pod", "-l", "app=kubetasker-frontend",
+				"--for=condition=Ready", "--timeout=2m", "-n", namespace)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred(), "Frontend pod did not become ready in time: %s", output)
+		}
+		Eventually(verifyFrontendUp).Should(Succeed())
+
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -97,6 +119,13 @@ var _ = Describe("Manager", Ordered, func() {
 		if _, err := utils.Run(exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace)); err == nil {
 			cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 			_, _ = utils.Run(cmd)
+		}
+
+		By("cleaning up the frontend API service")
+		frontendManifestPath := filepath.Join(projectRootDir, "kubetasker-frontend", "deployment.yaml")
+		cmd = exec.Command("kubectl", "delete", "-n", namespace, "-f", frontendManifestPath, "--ignore-not-found")
+		if _, err := utils.Run(cmd); err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "warning: failed to delete frontend deployment: %v\n", err)
 		}
 
 		By("undeploying the controller-manager")
@@ -260,6 +289,40 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(len(vwhOutput)).To(BeNumerically(">", 10))
 			}
 			Eventually(verifyCAInjection).Should(Succeed())
+		})
+
+		It("should have a healthy frontend API service", func() {
+			By("verifying the frontend service is accessible within the cluster")
+			verifyFrontendHealth := func(g Gomega) {
+				// Create a temporary pod to test connectivity to the frontend service.
+				// This is a multi-step but robust way to check in-cluster connectivity.
+				podName := "curl-frontend-test"
+				curlCmd := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
+
+				// 1. Create the pod.
+				cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
+					"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to create curl test pod")
+
+				// 2. Wait for the pod to be running.
+				waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
+					"--namespace", namespace, "--timeout=60s")
+				_, err = utils.Run(waitCmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Curl test pod did not become ready")
+
+				// 3. Execute the curl command inside the pod.
+				execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", curlCmd)
+				output, err := utils.Run(execCmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("200"))
+
+				// 4. Clean up the pod.
+				deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace)
+				_, _ = utils.Run(deleteCmd) // We don't need to check the error on cleanup.
+			}
+			// It might take a moment for the service and endpoints to become fully available.
+			Eventually(verifyFrontendHealth, "2m").Should(Succeed())
 		})
 
 		It("should handle a JobRequest that results in a successful Job", func() { // Test for successful job
