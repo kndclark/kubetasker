@@ -62,22 +62,6 @@ pyenv: ## create python venv for running the API
 		source $(PYVENV)/bin/activate && \
 		$(PYVENV)/bin/pip install --upgrade pip && \
 		$(PYVENV)/bin/pip install -r requirements.txt
-
-.PHONY: frontend-container
-frontend-container: ## build frontend API container standalone (outside kubernetes, typically for dev)
-	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
-	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
-
-.PHONY: clean-frontend-container
-clean-frontend-container: ## build frontend API container standalone (outside kubernetes, typically for dev)
-	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
-	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
-	$(CONTAINER_TOOL) rmi $(FRONTEND)
-
-# 	$(CONTAINER_TOOL) stop $(FRONTEND) && \
-# 	$(CONTAINER_TOOL) rm $(FRONTEND) && \
-# 	$(CONTAINER_TOOL) rmi $(FRONTEND)
-
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -168,9 +152,25 @@ run-local: manifests generate fmt vet ## Run a controller from your host with we
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
+docker-clean: ## stop and remove docker image completely
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(IMG)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(IMG)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
+	$(CONTAINER_TOOL) rmi $(IMG)
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: docker-build-frontend
+docker-build-frontend: ## build frontend API container standalone (outside kubernetes, typically for dev)
+	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
+	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
+
+.PHONY: docker-clean-frontend
+docker-clean-frontend: ## stop and remove frontend API container completely
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
+	$(CONTAINER_TOOL) rmi $(FRONTEND)
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
