@@ -19,6 +19,12 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+PYTHON=python3
+PYVENV=.kubetasker_pyenv
+
+FRONTEND=kubetasker-frontend
+FRONTEND_PORT=8000
+
 .PHONY: all
 all: build
 
@@ -48,6 +54,29 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: pyenv
+pyenv: ## create python venv for running the API
+	rm -rf $(PYVENV) && \
+	$(PYTHON) -m venv $(PYVENV) && \
+		source $(PYVENV)/bin/activate && \
+		$(PYVENV)/bin/pip install --upgrade pip && \
+		$(PYVENV)/bin/pip install -r requirements.txt
+
+.PHONY: frontend-container
+frontend-container: ## build frontend API container standalone (outside kubernetes, typically for dev)
+	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
+	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
+
+.PHONY: clean-frontend-container
+clean-frontend-container: ## build frontend API container standalone (outside kubernetes, typically for dev)
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
+	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(FRONTEND)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
+	$(CONTAINER_TOOL) rmi $(FRONTEND)
+
+# 	$(CONTAINER_TOOL) stop $(FRONTEND) && \
+# 	$(CONTAINER_TOOL) rm $(FRONTEND) && \
+# 	$(CONTAINER_TOOL) rmi $(FRONTEND)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
