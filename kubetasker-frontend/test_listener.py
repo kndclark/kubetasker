@@ -25,28 +25,34 @@ def setup_app_and_mock_k8s_client():
     # We need to mock the body attribute to be a JSON string
     class MockApiException(RealApiException):
         def __init__(self, status=0, reason=None, http_resp=None, body="{}"):
+            # In Python 3.12, the body attribute is expected to be bytes.
+            if isinstance(body, str):
+                body = body.encode('utf-8')
             super().__init__(status, reason, http_resp)
             self.body = body
     mock_kubernetes.client.exceptions.ApiException = MockApiException
 
     # Patch the config loading functions to do nothing.
     # These patches are active during the import of `listener.py`.
-    with patch('kubernetes.config.load_incluster_config'), \
-         patch('kubernetes.config.load_kube_config'):
-        # Patch sys.modules to ensure listener.py gets our mock for the client API
-        with patch.dict('sys.modules', {
-            'kubernetes': mock_kubernetes,
-            'kubernetes.client': mock_kubernetes.client,
-            'kubernetes.config': mock_kubernetes.config,
-            'kubernetes.client.exceptions': mock_kubernetes.client.exceptions,
-        }):
-            # Import app *within* the patched context
-            from listener import app
-            # Initialize client *within* the patched context
-            test_client = TestClient(app)
+    with patch('os.getenv', return_value='development'), \
+         patch('kubernetes.config.load_incluster_config'), \
+         patch('kubernetes.config.load_kube_config'), \
+         patch.dict('sys.modules', {
+             'kubernetes': mock_kubernetes,
+             'kubernetes.client': mock_kubernetes.client,
+             'kubernetes.config': mock_kubernetes.config,
+             'kubernetes.client.exceptions': mock_kubernetes.client.exceptions,
+         }):
+        # Import app and the dependency function within the patched context
+        from listener import app, get_k8s_api
 
-            # Yield the mock_kubernetes object and the test_client
-            yield mock_kubernetes, test_client
+        # Override the dependency with our mock client
+        app.dependency_overrides[get_k8s_api] = lambda: mock_kubernetes.client.CustomObjectsApi()
+        
+        test_client = TestClient(app)
+
+        # Yield the mock_kubernetes object and the test_client
+        yield mock_kubernetes, test_client
 
 def test_health_check(setup_app_and_mock_k8s_client):
     """
