@@ -12,20 +12,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: jobrequests.task.ktasker.com
+  name: ktasks.task.ktasker.com
 spec:
   group: task.ktasker.com
   names:
-    kind: JobRequest
-    listKind: JobRequestList
-    plural: jobrequests
-    singular: jobrequest
+    kind: Ktask
+    listKind: KtaskList
+    plural: ktasks
+    singular: ktask
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: JobRequest is the Schema for the jobrequests API
+        description: Ktask is the Schema for the ktasks API
         properties:
           apiVersion:
             description: |-
@@ -45,7 +45,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of JobRequest
+            description: spec defines the desired state of Ktask
             properties:
               backoffLimit:
                 description: |-
@@ -237,11 +237,11 @@ spec:
             - image
             type: object
           status:
-            description: status defines the observed state of JobRequest
+            description: status defines the observed state of Ktask
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the JobRequest resource.
+                  conditions represent the current state of the Ktask resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
@@ -310,7 +310,7 @@ spec:
                 x-kubernetes-list-type: map
               phase:
                 description: |-
-                  Phase represents the current phase of the JobRequest.
+                  Phase represents the current phase of the Ktask.
                   E.g., Pending, Running, Succeeded, Failed.
                 type: string
             type: object
@@ -379,18 +379,18 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: kubetasker
-  name: kubetasker-jobrequest-admin-role
+  name: kubetasker-ktask-admin-role
 rules:
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - '*'
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
 ---
@@ -400,12 +400,12 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: kubetasker
-  name: kubetasker-jobrequest-editor-role
+  name: kubetasker-ktask-editor-role
 rules:
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - create
   - delete
@@ -415,9 +415,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
 ---
@@ -427,20 +427,20 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: kubetasker
-  name: kubetasker-jobrequest-viewer-role
+  name: kubetasker-ktask-viewer-role
 rules:
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
 ---
@@ -472,7 +472,7 @@ rules:
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - create
   - delete
@@ -484,13 +484,13 @@ rules:
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/finalizers
+  - ktasks/finalizers
   verbs:
   - update
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
   - patch
@@ -741,19 +741,19 @@ webhooks:
     service:
       name: kubetasker-webhook-service
       namespace: kubetasker-system
-      path: /mutate-custom-custom-io-v1-jobrequest
+      path: /mutate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: mjobrequest.kb.io
+  name: mktask.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -769,17 +769,17 @@ webhooks:
     service:
       name: kubetasker-webhook-service
       namespace: kubetasker-system
-      path: /validate-custom-custom-io-v1-jobrequest
+      path: /validate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: vjobrequest.kb.io
+  name: vktask.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None

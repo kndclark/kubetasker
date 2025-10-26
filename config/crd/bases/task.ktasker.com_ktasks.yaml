@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: jobrequests.task.ktasker.com
+  name: ktasks.task.ktasker.com
 spec:
   group: task.ktasker.com
   names:
-    kind: JobRequest
-    listKind: JobRequestList
-    plural: jobrequests
-    singular: jobrequest
+    kind: Ktask
+    listKind: KtaskList
+    plural: ktasks
+    singular: ktask
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: JobRequest is the Schema for the jobrequests API
+        description: Ktask is the Schema for the ktasks API
         properties:
           apiVersion:
             description: |-
@@ -37,7 +37,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of JobRequest
+            description: spec defines the desired state of Ktask
             properties:
               backoffLimit:
                 description: |-
@@ -229,11 +229,11 @@ spec:
             - image
             type: object
           status:
-            description: status defines the observed state of JobRequest
+            description: status defines the observed state of Ktask
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the JobRequest resource.
+                  conditions represent the current state of the Ktask resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
@@ -302,7 +302,7 @@ spec:
                 x-kubernetes-list-type: map
               phase:
                 description: |-
-                  Phase represents the current phase of the JobRequest.
+                  Phase represents the current phase of the Ktask.
                   E.g., Pending, Running, Succeeded, Failed.
                 type: string
             type: object

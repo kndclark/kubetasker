@@ -27,26 +27,26 @@ rules:
   - watch
 - apiGroups:
   - task.ktasker.com
-  resources:
-  - jobrequests
   verbs:
   - create
   - delete
   - get
   - list
   - patch
+  resources:
+  - ktasks
   - update
   - watch
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/finalizers
+  - ktasks/finalizers
   verbs:
   - update
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
   - patch

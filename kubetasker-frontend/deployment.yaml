@@ -9,7 +9,7 @@ metadata:
   name: kubetasker-frontend-role
 rules:
 - apiGroups: ["task.ktasker.com"]
-  resources: ["jobrequests"]
+  resources: ["ktasks"]
   verbs: ["get", "list", "create"] # Permissions needed by the listener.py API endpoints
 ---
 apiVersion: rbac.authorization.k8s.io/v1

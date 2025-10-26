@@ -15,9 +15,9 @@ webhooks:
     service:
       name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /mutate-task-ktasker-com-v1-jobrequest
+      path: /mutate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: mjobrequest.kb.io
+  name: mktask.kb.io
   rules:
   - apiGroups:
     - task.ktasker.com
@@ -27,7 +27,7 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -46,9 +46,9 @@ webhooks:
     service:
       name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /validate-task-ktasker-com-v1-jobrequest
+      path: /validate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: vjobrequest.kb.io
+  name: vktask.kb.io
   rules:
   - apiGroups:
     - task.ktasker.com
@@ -58,5 +58,5 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None

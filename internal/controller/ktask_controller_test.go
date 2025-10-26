@@ -33,7 +33,7 @@ import (
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
 
-var _ = Describe("JobRequest Controller", func() {
+var _ = Describe("Ktask Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -43,18 +43,18 @@ var _ = Describe("JobRequest Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		jobrequest := &customv1.JobRequest{}
+		ktask := &customv1.Ktask{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind JobRequest")
-			err := k8sClient.Get(ctx, typeNamespacedName, jobrequest)
+			By("creating the custom resource for the Kind Ktask")
+			err := k8sClient.Get(ctx, typeNamespacedName, ktask)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &customv1.JobRequest{
+				resource := &customv1.Ktask{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					Spec: customv1.JobRequestSpec{
+					Spec: customv1.KtaskSpec{
 						Image:              "test-image:latest",
 						Command:            []string{"echo", "hello"},
 						RestartPolicy:      "OnFailure", // Set default for tests
@@ -66,14 +66,14 @@ var _ = Describe("JobRequest Controller", func() {
 		})
 
 		AfterEach(func() {
-			By("Cleanup the JobRequest resource")
-			jobRequest := &customv1.JobRequest{}
+			By("Cleanup the Ktask resource")
+			ktask := &customv1.Ktask{}
 			// First, try to get the resource. If it exists, delete it.
-			if err := k8sClient.Get(ctx, typeNamespacedName, jobRequest); err == nil {
-				Expect(k8sClient.Delete(ctx, jobRequest, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(Succeed())
+			if err := k8sClient.Get(ctx, typeNamespacedName, ktask); err == nil {
+				Expect(k8sClient.Delete(ctx, ktask, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(Succeed())
 				// Wait for the deletion to complete.
 				Eventually(func() bool {
-					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, jobRequest))
+					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, ktask))
 				}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 			}
 
@@ -91,8 +91,8 @@ var _ = Describe("JobRequest Controller", func() {
 		})
 
 		// Helper function to get a specific condition
-		getCondition := func(jobRequest *customv1.JobRequest, condType string) *metav1.Condition {
-			for _, cond := range jobRequest.Status.Conditions {
+		getCondition := func(ktask *customv1.Ktask, condType string) *metav1.Condition {
+			for _, cond := range ktask.Status.Conditions {
 				if cond.Type == condType {
 					return &cond
 				}
@@ -102,7 +102,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should successfully reconcile the resource and create a Job", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &JobRequestReconciler{
+			controllerReconciler := &KtaskReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -129,9 +129,9 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(createdJob.Spec.Template.Spec.ServiceAccountName).To(Equal("test-sa"))
 		})
 
-		It("should update the JobRequest status to Succeeded when the Job completes", func() {
+		It("should update the Ktask status to Succeeded when the Job completes", func() {
 			By("Reconciling the created resource to create the Job")
-			controllerReconciler := &JobRequestReconciler{
+			controllerReconciler := &KtaskReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -157,15 +157,15 @@ var _ = Describe("JobRequest Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking if the JobRequest status is updated to Succeeded")
-			updatedJobRequest := &customv1.JobRequest{}
+			By("Checking if the Ktask status is updated to Succeeded")
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseSucceeded))
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseSucceeded))
 
 				// Verify the condition is set correctly
-				succeededCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				succeededCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(succeededCondition).NotTo(BeNil())
 				g.Expect(succeededCondition.Status).To(Equal(metav1.ConditionTrue))
 				g.Expect(succeededCondition.Reason).To(Equal("JobSucceeded"))
@@ -174,7 +174,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should update status to Failed with TransientFailure for BackoffLimitExceeded", func() {
 			By("Reconciling the created resource to create the Job")
-			controllerReconciler := &JobRequestReconciler{
+			controllerReconciler := &KtaskReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -215,14 +215,14 @@ var _ = Describe("JobRequest Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking if the JobRequest status is updated to Failed")
-			updatedJobRequest := &customv1.JobRequest{}
+			By("Checking if the Ktask status is updated to Failed")
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseFailed))
 
-				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonTransientFailure))
@@ -231,7 +231,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should update status to Failed with PermanentFailure for ImagePullBackOff", func() {
 			By("Reconciling to create the Job")
-			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -258,13 +258,13 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking for PermanentFailure reason")
-			updatedJobRequest := &customv1.JobRequest{}
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseFailed))
 
-				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
@@ -273,7 +273,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should update status to Failed with PermanentFailure for ImagePullBackOff on Pod", func() {
 			By("Reconciling to create the Job")
-			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -320,12 +320,12 @@ var _ = Describe("JobRequest Controller", func() {
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			updatedJobRequest := &customv1.JobRequest{}
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)).To(Succeed())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedKtask)).To(Succeed())
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseFailed))
 
-				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonPermanentFailure))
@@ -334,7 +334,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should update status to Failed with ConflictError for CreateContainerConfigError", func() {
 			By("Reconciling to create the Job")
-			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -387,13 +387,13 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking for ConflictError reason")
-			updatedJobRequest := &customv1.JobRequest{}
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseFailed))
 
-				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonConflictError))
@@ -409,7 +409,7 @@ var _ = Describe("JobRequest Controller", func() {
 
 		It("should update status to Failed with RecoverableLogicError for exit code 1", func() {
 			By("Reconciling to create the Job")
-			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -457,13 +457,13 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking for RecoverableLogicError reason")
-			updatedJobRequest := &customv1.JobRequest{}
+			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
-				err := k8sClient.Get(ctx, typeNamespacedName, updatedJobRequest)
+				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(updatedJobRequest.Status.Phase).To(Equal(customv1.JobRequestPhaseFailed))
+				g.Expect(updatedKtask.Status.Phase).To(Equal(customv1.PhaseFailed))
 
-				failedCondition := getCondition(updatedJobRequest, customv1.JobReady)
+				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonRecoverableLogicError))
@@ -477,15 +477,15 @@ var _ = Describe("JobRequest Controller", func() {
 			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 
-		It("should not create a new Job if the JobRequest is already Succeeded", func() {
-			By("Manually setting the JobRequest status to Succeeded")
-			succeededJobRequest := &customv1.JobRequest{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, succeededJobRequest)).To(Succeed())
-			succeededJobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
-			Expect(k8sClient.Status().Update(ctx, succeededJobRequest)).To(Succeed())
+		It("should not create a new Job if the Ktask is already Succeeded", func() {
+			By("Manually setting the Ktask status to Succeeded")
+			succeededKtask := &customv1.Ktask{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, succeededKtask)).To(Succeed())
+			succeededKtask.Status.Phase = customv1.PhaseSucceeded
+			Expect(k8sClient.Status().Update(ctx, succeededKtask)).To(Succeed())
 
 			By("Reconciling the resource")
-			controllerReconciler := &JobRequestReconciler{
+			controllerReconciler := &KtaskReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -504,36 +504,9 @@ var _ = Describe("JobRequest Controller", func() {
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
-		It("should not create a new Job if the JobRequest is already Failed", func() {
-			By("Manually setting the JobRequest status to Failed")
-			failedJobRequest := &customv1.JobRequest{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, failedJobRequest)).To(Succeed())
-			failedJobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-			Expect(k8sClient.Status().Update(ctx, failedJobRequest)).To(Succeed())
-
-			By("Reconciling the resource")
-			controllerReconciler := &JobRequestReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Ensuring no Job was created")
-			createdJob := &batchv1.Job{}
-			jobNamespacedName := types.NamespacedName{
-				Name:      resourceName + "-job",
-				Namespace: "default",
-			}
-			err = k8sClient.Get(ctx, jobNamespacedName, createdJob)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should set the JobRequest as the owner of the created Job", func() {
+		It("should set the Ktask as the owner of the created Job", func() {
 			By("Reconciling the resource to create the Job")
-			controllerReconciler := &JobRequestReconciler{
+			controllerReconciler := &KtaskReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -551,13 +524,35 @@ var _ = Describe("JobRequest Controller", func() {
 
 			Expect(createdJob.OwnerReferences).To(HaveLen(1))
 			Expect(createdJob.OwnerReferences[0].APIVersion).To(Equal(customv1.GroupVersion.String()))
-			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("JobRequest"))
+			Expect(createdJob.OwnerReferences[0].Kind).To(Equal("Ktask"))
 			Expect(createdJob.OwnerReferences[0].Name).To(Equal(resourceName))
+		})
+
+		It("should not create a new Job if the Ktask is already Failed", func() {
+			By("Manually setting the Ktask status to Failed")
+			failedKtask := &customv1.Ktask{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, failedKtask)).To(Succeed())
+			failedKtask.Status.Phase = customv1.PhaseFailed
+			Expect(k8sClient.Status().Update(ctx, failedKtask)).To(Succeed())
+
+			By("Reconciling the resource")
+			controllerReconciler := &KtaskReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Ensuring no Job was created")
+			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, jobNamespacedName, &batchv1.Job{}))).To(BeTrue())
 		})
 
 		It("should requeue if the job is still processing", func() {
 			By("Reconciling to create the Job")
-			controllerReconciler := &JobRequestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 

@@ -1,0 +1,27 @@
+# permissions for end users to edit ktasks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: kubetasker
+    app.kubernetes.io/managed-by: kustomize
+  name: ktask-editor-role
+rules:
+- apiGroups:
+  - task.ktasker.com
+  resources:
+  - ktasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - task.ktasker.com
+  resources:
+  - ktasks/status
+  verbs:
+  - get
