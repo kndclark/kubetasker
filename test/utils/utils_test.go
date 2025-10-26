@@ -29,6 +29,18 @@ var _ = Describe("Utils", func() {
 			expected := []string{"line1", "line2"}
 			Expect(GetNonEmptyLines(input)).To(Equal(expected))
 		})
+
+		It("should handle lines with spaces", func() {
+			input := "  line1  \n\n line2 \n"
+			expected := []string{"  line1  ", " line2 "}
+			Expect(GetNonEmptyLines(input)).To(Equal(expected))
+		})
+
+		It("should handle mixed Windows and Unix newlines", func() {
+			input := "line1\r\nline2\nline3"
+			expected := []string{"line1", "line2", "line3"}
+			Expect(GetNonEmptyLines(input)).To(Equal(expected))
+		})
 	})
 
 	// NOTE: Testing functions that interact with a live Kubernetes cluster

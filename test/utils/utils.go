@@ -144,7 +144,9 @@ func LoadImageToKindClusterWithName(clusterName, imageName string) error {
 // according to line breakers, and ignores the empty elements in it.
 func GetNonEmptyLines(output string) []string {
 	var res []string
-	elements := strings.Split(output, "\n")
+	// Normalize line endings to handle both \n and \r\n
+	normalizedOutput := strings.ReplaceAll(output, "\r\n", "\n")
+	elements := strings.Split(normalizedOutput, "\n")
 	for _, element := range elements {
 		if element != "" {
 			res = append(res, element)

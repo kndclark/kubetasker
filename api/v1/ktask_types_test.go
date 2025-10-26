@@ -70,4 +70,9 @@ var _ = Describe("Ktask types", func() {
 		Expect(ok).To(BeTrue())
 	})
 
+	It("should handle deep copy of a nil list", func() {
+		var original *KtaskList = nil
+		Expect(original.DeepCopy()).To(BeNil())
+	})
+
 })
