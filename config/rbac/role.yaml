@@ -27,7 +27,7 @@ rules:
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - create
   - delete
@@ -39,13 +39,13 @@ rules:
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/finalizers
+  - ktasks/finalizers
   verbs:
   - update
 - apiGroups:
   - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
   - patch

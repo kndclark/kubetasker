@@ -6,20 +6,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("JobRequest types", func() {
+var _ = Describe("Ktask types", func() {
 
 	It("should perform deep copy correctly", func() {
-		// Create an original JobRequest object
-		original := &JobRequest{
+		// Create an original Ktask object
+		original := &Ktask{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-job",
 				Namespace: "test-ns",
 			},
-			Spec: JobRequestSpec{
+			Spec: KtaskSpec{
 				Image:   "original-image",
 				Command: []string{"echo", "original"},
 			},
-			Status: JobRequestStatus{
+			Status: KtaskStatus{
 				Phase: "Pending",
 			},
 		}
@@ -40,21 +40,21 @@ var _ = Describe("JobRequest types", func() {
 		// Test DeepCopyObject
 		obj := original.DeepCopyObject()
 		Expect(obj).NotTo(BeNil())
-		_, ok := obj.(*JobRequest)
+		_, ok := obj.(*Ktask)
 		Expect(ok).To(BeTrue())
 	})
 
 	It("should handle deep copy of a nil object", func() {
-		var original *JobRequest = nil
+		var original *Ktask = nil
 		Expect(original.DeepCopy()).To(BeNil())
 	})
 
 	It("should perform deep copy of a list correctly", func() {
-		originalList := &JobRequestList{
-			Items: []JobRequest{
+		originalList := &KtaskList{
+			Items: []Ktask{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "test-1"},
-					Spec:       JobRequestSpec{Image: "image-1"},
+					Spec:       KtaskSpec{Image: "image-1"},
 				},
 			},
 		}
@@ -66,7 +66,7 @@ var _ = Describe("JobRequest types", func() {
 		// Test DeepCopyObject for the list
 		obj := originalList.DeepCopyObject()
 		Expect(obj).NotTo(BeNil())
-		_, ok := obj.(*JobRequestList)
+		_, ok := obj.(*KtaskList)
 		Expect(ok).To(BeTrue())
 	})
 

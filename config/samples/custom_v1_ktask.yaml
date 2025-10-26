@@ -1,10 +1,10 @@
 apiVersion: custom.custom.io/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   labels:
-    app.kubernetes.io/name: jobrequest
+    app.kubernetes.io/name: ktask
     app.kubernetes.io/managed-by: kustomize
-  name: jobrequest-sample
+  name: ktask-sample
 spec:
   image: busybox:1.28
   command:

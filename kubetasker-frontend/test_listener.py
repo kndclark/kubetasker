@@ -80,52 +80,52 @@ def test_health_check(setup_app_and_mock_k8s_client):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-def test_create_job_request(setup_app_and_mock_k8s_client):
+def test_create_ktask(setup_app_and_mock_k8s_client):
+    """
+    Tests the POST /ktask endpoint, mocking the Kubernetes client call.
+    """
     mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    """
-    Tests the POST /jobrequest endpoint, mocking the Kubernetes client call.
-    """
-    job_request_payload = {
+    ktask_payload = {
         "apiVersion": "task.ktasker.com/v1",
-        "kind": "JobRequest",
+        "kind": "Ktask",
         "metadata": {"name": "test-job-1", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"], 
                  'restartPolicy': 'OnFailure'},
     }
     # Mock the API response from the Kubernetes client
-    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = job_request_payload.copy()
+    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = ktask_payload.copy()
 
-    response = client.post("/jobrequest", json=job_request_payload)
+    response = client.post("/ktask", json=ktask_payload)
 
     # Assertions
     assert response.status_code == 200
-    assert response.json()["message"] == "JobRequest submitted"
-    assert response.json()["job_request"] == job_request_payload # The mock returns the payload
+    assert response.json()["message"] == "Ktask submitted"
+    assert response.json()["ktask"] == ktask_payload # The mock returns the payload
 
     # Verify that the k8s client was called correctly
     mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_called_once_with(
         group="task.ktasker.com",
         version="v1",
         namespace="test-ns",
-        plural="jobrequests",
-        body=job_request_payload,
+        plural="ktasks",
+        body=ktask_payload,
     )
 
-def test_create_job_request_validation_error(setup_app_and_mock_k8s_client):
+def test_create_ktask_validation_error(setup_app_and_mock_k8s_client):
     """
-    Tests that the POST /jobrequest endpoint returns a 422 on validation failure.
+    Tests that the POST /ktask endpoint returns a 422 on validation failure.
     """
     _, client, _ = setup_app_and_mock_k8s_client
 
     # Payload missing the required 'image' field in spec
     invalid_payload = {
         "apiVersion": "task.ktasker.com/v1",
-        "kind": "JobRequest",
+        "kind": "Ktask",
         "metadata": {"name": "test-job-invalid"},
         "spec": {"command": ["echo", "test"]},
     }
 
-    response = client.post("/jobrequest", json=invalid_payload)
+    response = client.post("/ktask", json=invalid_payload)
 
     assert response.status_code == 422
     response_json = response.json()
@@ -133,7 +133,7 @@ def test_create_job_request_validation_error(setup_app_and_mock_k8s_client):
     assert response_json["detail"][0]["msg"] == "Field required"
     assert response_json["detail"][0]["loc"] == ["body", "spec", "image"]
 
-def test_create_job_request_bad_api_version(setup_app_and_mock_k8s_client):
+def test_create_ktask_bad_api_version(setup_app_and_mock_k8s_client):
     """
     Tests that the custom apiVersion validator rejects incorrect versions.
     """
@@ -141,24 +141,24 @@ def test_create_job_request_bad_api_version(setup_app_and_mock_k8s_client):
 
     invalid_payload = {
         "apiVersion": "task.ktasker.com/v2", # Incorrect version
-        "kind": "JobRequest",
+        "kind": "Ktask",
         "metadata": {"name": "test-job-invalid-api"},
         "spec": {"image": "busybox"},
     }
 
-    response = client.post("/jobrequest", json=invalid_payload)
+    response = client.post("/ktask", json=invalid_payload)
 
     assert response.status_code == 422
     assert 'apiVersion must be' in response.text and 'task.ktasker.com/v1' in response.text
 
-def test_create_job_request_conflict(setup_app_and_mock_k8s_client):
+def test_create_ktask_conflict(setup_app_and_mock_k8s_client):
     """
-    Tests that POST /jobrequest returns a 409 on conflict (resource already exists).
+    Tests that POST /ktask returns a 409 on conflict (resource already exists).
     """
     mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
-    job_request_payload = {
+    ktask_payload = {
         "apiVersion": "task.ktasker.com/v1",
-        "kind": "JobRequest",
+        "kind": "Ktask",
         "metadata": {"name": "test-job-conflict", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"], 'restartPolicy': 'OnFailure'},
     }
@@ -166,23 +166,23 @@ def test_create_job_request_conflict(setup_app_and_mock_k8s_client):
     # Use the helper to configure the mock exception
     side_effect = create_api_exception(
         status=409, reason="Conflict", 
-        body_dict={"message": "jobrequests.task.ktasker.com \"test-job-conflict\" already exists"}
+        body_dict={"message": "ktasks.task.ktasker.com \"test-job-conflict\" already exists"}
     )
     mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
 
-    response = client.post("/jobrequest", json=job_request_payload)
+    response = client.post("/ktask", json=ktask_payload)
     assert response.status_code == 409
     assert "already exists" in response.text
 
-def test_list_job_requests(setup_app_and_mock_k8s_client):
+def test_list_ktasks(setup_app_and_mock_k8s_client):
+    """
+    Tests the GET /ktask endpoint, mocking the Kubernetes client call.
+    """
     mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    """
-    Tests the GET /jobrequest endpoint, mocking the Kubernetes client call.
-    """
     mock_k8s_response = {"items": [{"metadata": {"name": "test-job-1"}}]} #.copy()
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
 
-    response = client.get("/jobrequest?namespace=test-ns")
+    response = client.get("/ktask?namespace=test-ns")
 
     assert response.status_code == 200
     assert response.json() == mock_k8s_response
@@ -192,19 +192,19 @@ def test_list_job_requests(setup_app_and_mock_k8s_client):
         group="task.ktasker.com",
         version="v1",
         namespace="test-ns",
-        plural="jobrequests",
+        plural="ktasks",
     )
 
-def test_list_job_requests_default_namespace(setup_app_and_mock_k8s_client):
+def test_list_ktasks_default_namespace(setup_app_and_mock_k8s_client):
     """
-    Tests that GET /jobrequest uses the 'default' namespace if none is provided.
+    Tests that GET /ktask uses the 'default' namespace if none is provided.
     """
     mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
     mock_k8s_response = {"items": [{"metadata": {"name": "test-job-default-ns"}}]}
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
 
     # Note: No '?namespace=' query parameter is sent
-    response = client.get("/jobrequest")
+    response = client.get("/ktask")
 
     assert response.status_code == 200
     assert response.json() == mock_k8s_response
@@ -214,12 +214,12 @@ def test_list_job_requests_default_namespace(setup_app_and_mock_k8s_client):
         group="task.ktasker.com",
         version="v1",
         namespace="default",
-        plural="jobrequests",
+        plural="ktasks",
     )
 
-def test_list_job_requests_api_error(setup_app_and_mock_k8s_client):
+def test_list_ktasks_api_error(setup_app_and_mock_k8s_client):
     """
-    Tests that GET /jobrequest handles generic API errors from Kubernetes.
+    Tests that GET /ktask handles generic API errors from Kubernetes.
     """
     mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
 
@@ -229,17 +229,17 @@ def test_list_job_requests_api_error(setup_app_and_mock_k8s_client):
     )
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = side_effect
 
-    response = client.get("/jobrequest?namespace=test-ns")
+    response = client.get("/ktask?namespace=test-ns")
     assert response.status_code == 500
     assert "the server has a problem" in response.text
 
-def test_get_job_request(setup_app_and_mock_k8s_client):
+def test_get_ktask(setup_app_and_mock_k8s_client):
+    """Tests the GET /ktask/{job_name} endpoint."""
     mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    """Tests the GET /jobrequest/{job_name} endpoint."""
     mock_k8s_response = {"metadata": {"name": "test-job-1"}} #.copy()
     mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.return_value = mock_k8s_response.copy()
 
-    response = client.get("/jobrequest/test-job-1?namespace=test-ns")
+    response = client.get("/ktask/test-job-1?namespace=test-ns")
 
     assert response.status_code == 200
     assert response.json() == mock_k8s_response
@@ -250,12 +250,12 @@ def test_get_job_request(setup_app_and_mock_k8s_client):
         version="v1",
         name="test-job-1",
         namespace="test-ns",
-        plural="jobrequests",
+        plural="ktasks",
     )
 
-def test_get_job_request_not_found(setup_app_and_mock_k8s_client):
+def test_get_ktask_not_found(setup_app_and_mock_k8s_client):
+    """Tests the GET /ktask/{job_name} endpoint when the resource is not found."""
     mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
-    """Tests the GET /jobrequest/{job_name} endpoint when the resource is not found."""
 
     side_effect = create_api_exception(
         status=404, 
@@ -264,14 +264,14 @@ def test_get_job_request_not_found(setup_app_and_mock_k8s_client):
     )
     mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
 
-    response = client.get("/jobrequest/not-found-job?namespace=test-ns")
+    response = client.get("/ktask/not-found-job?namespace=test-ns")
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
 
-def test_get_job_request_api_error(setup_app_and_mock_k8s_client):
+def test_get_ktask_api_error(setup_app_and_mock_k8s_client):
     """
-    Tests that GET /jobrequest/{job_name} handles generic API errors.
+    Tests that GET /ktask/{job_name} handles generic API errors.
     """
     mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
 
@@ -282,7 +282,7 @@ def test_get_job_request_api_error(setup_app_and_mock_k8s_client):
     )
     mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
 
-    response = client.get("/jobrequest/some-job?namespace=test-ns")
+    response = client.get("/ktask/some-job?namespace=test-ns")
     assert response.status_code == 503
     assert "etcd is down" in response.text
 
@@ -297,7 +297,7 @@ def test_api_unavailable_when_k8s_client_fails(setup_app_and_mock_k8s_client):
     client = TestClient(app)
 
     # Test one of the endpoints
-    response = client.get("/jobrequest?namespace=test-ns")
+    response = client.get("/ktask?namespace=test-ns")
 
     assert response.status_code == 503
     assert "Service is unavailable" in response.json()["detail"]

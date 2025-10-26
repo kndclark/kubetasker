@@ -34,45 +34,45 @@ import (
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
 
-// JobRequestReconciler reconciles a JobRequest object
-type JobRequestReconciler struct {
+// KtaskReconciler reconciles a Ktask object
+type KtaskReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=task.ktasker.com,resources=jobrequests/finalizers,verbs=update
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=ktasks,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=ktasks/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=task.ktasker.com,resources=ktasks/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// Create a contextual logger with the JobRequest's name and namespace.
+	// Create a contextual logger with the Ktask's name and namespace.
 	// This will be used for all subsequent logs in this reconciliation loop.
-	log = log.WithValues("jobrequest", req.NamespacedName)
-	log.Info("Reconciling JobRequest")
+	log = log.WithValues("ktask", req.NamespacedName)
+	log.Info("Reconciling Ktask")
 
-	// 1. Fetch the JobRequest instance
-	var jobRequest customv1.JobRequest
-	if err := r.Get(ctx, req.NamespacedName, &jobRequest); err != nil {
+	// 1. Fetch the Ktask instance
+	var ktask customv1.Ktask
+	if err := r.Get(ctx, req.NamespacedName, &ktask); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("JobRequest resource deleted")
+			log.Info("Ktask resource deleted")
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
-		log.Error(err, "Failed to get JobRequest")
+		log.Error(err, "Failed to get Ktask")
 		return ctrl.Result{}, err
 	}
 
-	// 2. Check if a Job for this JobRequest already exists
+	// 2. Check if a Job for this Ktask already exists
 	var childJob batchv1.Job
-	jobName := fmt.Sprintf("%s-job", jobRequest.Name)
+	jobName := fmt.Sprintf("%s-job", ktask.Name)
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: req.Namespace}, &childJob); err == nil {
-		return r.reconcileExistingJob(ctx, &jobRequest, &childJob)
+		return r.reconcileExistingJob(ctx, &ktask, &childJob)
 	} else if !errors.IsNotFound(err) {
 		// Some other error occurred when trying to get the job.
 		log.Error(err, "Failed to get child Job", "Job", jobName)
@@ -81,17 +81,17 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// The backoff limit is defaulted by the webhook, so we can use it directly.
 	// This nil check is a safeguard in case webhooks are disabled.
-	if jobRequest.Spec.BackoffLimit == nil {
-		jobRequest.Spec.BackoffLimit = new(int32)
-		*jobRequest.Spec.BackoffLimit = 4
+	if ktask.Spec.BackoffLimit == nil {
+		ktask.Spec.BackoffLimit = new(int32)
+		*ktask.Spec.BackoffLimit = 4
 	}
 
-	// 3. If the Job does not exist, and the JobRequest is not in a terminal state, create it.
-	// Define the new Job from the JobRequest's spec
+	// 3. If the Job does not exist, and the Ktask is not in a terminal state, create it.
+	// Define the new Job from the Ktask's spec
 	newJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: jobRequest.Namespace,
+			Namespace: ktask.Namespace,
 		},
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
@@ -102,13 +102,13 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
-					ServiceAccountName: jobRequest.Spec.ServiceAccountName,
+					ServiceAccountName: ktask.Spec.ServiceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:    "job-container",
-							Image:   jobRequest.Spec.Image,
-							Command: jobRequest.Spec.Command,
-							Env:     jobRequest.Spec.Env,
+							Image:   ktask.Spec.Image,
+							Command: ktask.Spec.Command,
+							Env:     ktask.Spec.Env,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsUser:                &[]int64{1001}[0],
 								RunAsGroup:               &[]int64{1001}[0],
@@ -121,70 +121,71 @@ func (r *JobRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							},
 						},
 					},
-					RestartPolicy: corev1.RestartPolicy(jobRequest.Spec.RestartPolicy),
+					RestartPolicy: corev1.RestartPolicy(ktask.Spec.RestartPolicy),
 				},
 			},
-			BackoffLimit: jobRequest.Spec.BackoffLimit,
+			BackoffLimit: ktask.Spec.BackoffLimit,
 		},
 	}
 
-	// Set the JobRequest as the owner of this Job. When the JobRequest is deleted,
+	// Set the Ktask as the owner of this Job. When the Ktask is deleted,
 	// Kubernetes will automatically delete the Job it owns.
-	if err := ctrl.SetControllerReference(&jobRequest, newJob, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(&ktask, newJob, r.Scheme); err != nil {
 		log.Error(err, "Failed to set owner reference on Job")
 		return ctrl.Result{}, err
 	}
 
-	// Check if the JobRequest is already in a terminal phase before creating a new Job.
-	if jobRequest.Status.Phase == "" || jobRequest.Status.Phase == customv1.JobRequestPhasePending {
-		log.Info("Creating a new Job for JobRequest")
+	// Check if the Ktask is already in a terminal phase before creating a new Job.
+	if ktask.Status.Phase == "" || ktask.Status.Phase == customv1.PhasePending {
+		log.Info("Creating a new Job for Ktask")
 		if err := r.Create(ctx, newJob); err != nil {
 			log.Error(err, "Failed to create new Job", "Job", client.ObjectKeyFromObject(newJob))
 			return ctrl.Result{}, err
 		}
 
-		// Job created successfully, update the status of the JobRequest to Processing.
-		log.Info("JobRequest processing")
-		jobRequest.Status.Phase = customv1.JobRequestPhaseProcessing
-		if err := r.Status().Update(ctx, &jobRequest); err != nil {
-			log.Error(err, "Failed to update JobRequest status to Processing")
+		// Job created successfully, update the status of the Ktask to Processing.
+		log.Info("Ktask processing")
+		ktask.Status.Phase = customv1.PhaseProcessing
+		if err := r.Status().Update(ctx, &ktask); err != nil {
+			log.Error(err, "Failed to update Ktask status to Processing")
 			return ctrl.Result{}, err
 		}
 
 		// Requeue the request to check the job status in the next reconciliation.
 		return ctrl.Result{RequeueAfter: time.Second * 1}, nil
 	} else {
-		log.Info("JobRequest is in a terminal phase, skipping Job creation", "phase", jobRequest.Status.Phase)
+		log.Info("Ktask is in a terminal phase, skipping Job creation", "phase", ktask.Status.Phase)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-// reconcileExistingJob handles the logic for a JobRequest that already has an associated Job.
-func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequest *customv1.JobRequest, childJob *batchv1.Job) (ctrl.Result, error) {
+// reconcileExistingJob handles the logic for a Ktask that already has an associated Job.
+func (r *KtaskReconciler) reconcileExistingJob(ctx context.Context, ktask *customv1.Ktask, childJob *batchv1.Job) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	jobName := childJob.Name
 
 	// 1. Check for Job completion first. This is a terminal state.
 	if childJob.Status.Succeeded > 0 {
 		log.Info("Child Job has succeeded")
-		if jobRequest.Status.Phase != customv1.JobRequestPhaseSucceeded {
-			jobRequest.Status.Phase = customv1.JobRequestPhaseSucceeded
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{
+		if ktask.Status.Phase != customv1.PhaseSucceeded {
+			ktask.Status.Phase = customv1.PhaseSucceeded
+			meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{
 				Type:    customv1.JobReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  "JobSucceeded",
 				Message: "The job completed successfully.",
 			})
-			if err := r.Status().Update(ctx, jobRequest); err != nil {
-				return ctrl.Result{}, err
+			if err := r.Status().Update(ctx, ktask); err != nil {
+				return ctrl.Result{}, err // Requeue on error
 			}
+			return ctrl.Result{RequeueAfter: time.Second * 1}, nil // Requeue to confirm status
 		}
 		return ctrl.Result{}, nil
 	}
 
 	// 2. Check for "fail-fast" conditions by inspecting Pods.
-	if updated, err := r.checkPodFailures(ctx, jobRequest, jobName); err != nil || updated {
+	if updated, err := r.checkPodFailures(ctx, ktask, jobName); err != nil || updated {
 		if err != nil {
 			log.Error(err, "Failed to check pod failures")
 		}
@@ -194,8 +195,8 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 	// 3. If no fail-fast condition was met, check if the Job itself has officially failed.
 	if childJob.Status.Failed > 0 {
 		log.Info("Child Job has failed according to its own status")
-		if jobRequest.Status.Phase != customv1.JobRequestPhaseFailed {
-			jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
+		if ktask.Status.Phase != customv1.PhaseFailed {
+			ktask.Status.Phase = customv1.PhaseFailed
 
 			reason := customv1.ReasonTransientFailure // Default to transient
 			message := "Job failed after reaching its backoff limit."
@@ -209,8 +210,8 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 				}
 			}
 
-			meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
-			if err := r.Status().Update(ctx, jobRequest); err != nil {
+			meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: reason, Message: message})
+			if err := r.Status().Update(ctx, ktask); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -219,15 +220,15 @@ func (r *JobRequestReconciler) reconcileExistingJob(ctx context.Context, jobRequ
 
 	// 4. If none of the above, the job is still processing.
 	log.Info("Child Job is still processing")
-	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+	return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 }
 
 // checkPodFailures inspects the pods of a job for fail-fast conditions.
-// It returns true if the JobRequest status was updated, and an error if one occurred.
-func (r *JobRequestReconciler) checkPodFailures(ctx context.Context, jobRequest *customv1.JobRequest, jobName string) (bool, error) {
+// It returns true if the Ktask status was updated, and an error if one occurred.
+func (r *KtaskReconciler) checkPodFailures(ctx context.Context, ktask *customv1.Ktask, jobName string) (bool, error) {
 	log := logf.FromContext(ctx)
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList, client.InNamespace(jobRequest.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(ktask.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
 		return false, fmt.Errorf("failed to list pods for Job: %w", err)
 	}
 
@@ -246,22 +247,13 @@ func (r *JobRequestReconciler) checkPodFailures(ctx context.Context, jobRequest 
 					}
 
 					log.Info("Detected permanent pod failure", "reason", reason)
-					jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-					meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
-					if err := r.Status().Update(ctx, jobRequest); err != nil {
+					ktask.Status.Phase = customv1.PhaseFailed
+					meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: failureType, Message: message})
+					if err := r.Status().Update(ctx, ktask); err != nil {
 						return false, err
 					}
 					return true, nil // Status updated, stop further reconciliation
 				}
-			}
-			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
-				log.Info("Detected recoverable pod failure", "exitCode", containerStatus.State.Terminated.ExitCode)
-				jobRequest.Status.Phase = customv1.JobRequestPhaseFailed
-				meta.SetStatusCondition(&jobRequest.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
-				if err := r.Status().Update(ctx, jobRequest); err != nil {
-					return false, err
-				}
-				return true, nil // Status updated, stop further reconciliation
 			}
 		}
 	}
@@ -269,10 +261,10 @@ func (r *JobRequestReconciler) checkPodFailures(ctx context.Context, jobRequest 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *JobRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *KtaskReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&customv1.JobRequest{}).
-		Named("jobrequest").
+		For(&customv1.Ktask{}).
+		Named("ktask").
 		Owns(&batchv1.Job{}).
 		Complete(r)
 }

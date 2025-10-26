@@ -2,21 +2,21 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
-  name: jobrequests.task.ktasker.com
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: ktasks.task.ktasker.com
 spec:
   group: task.ktasker.com
   names:
-    kind: JobRequest
-    listKind: JobRequestList
-    plural: jobrequests
-    singular: jobrequest
+    kind: Ktask
+    listKind: KtaskList
+    plural: ktasks
+    singular: ktask
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: JobRequest is the Schema for the jobrequests API
+        description: Ktask is the Schema for the ktasks API
         properties:
           apiVersion:
             description: |-
@@ -36,7 +36,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of JobRequest
+            description: spec defines the desired state of Ktask
             properties:
               backoffLimit:
                 description: |-
@@ -211,11 +211,11 @@ spec:
                   Image is the container image to run for the job.
                   This field is required.
                 minLength: 1
-                type: string
+                type: string 
               restartPolicy:
                 description: |-
                   RestartPolicy defines the restart policy for the job's pods.
-                  Can be "OnFailure" or "Never". Defaults to "OnFailure".
+                  Can be "OnFailure" or "Never". Defaults to "OnFailure". 
                 enum:
                 - OnFailure
                 - Never
@@ -224,16 +224,16 @@ spec:
             - image
             type: object
           status:
-            description: status defines the observed state of JobRequest
+            description: status defines the observed state of Ktask
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the JobRequest resource.
+                  conditions represent the current state of the Ktask resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
                   - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
+                  - "Progressing": the resource is being created or updated 
                   - "Degraded": the resource failed to reach or maintain its desired state
 
                   The status of each condition is one of True, False, or Unknown.
@@ -297,9 +297,9 @@ spec:
                 x-kubernetes-list-type: map
               phase:
                 description: |-
-                  Phase represents the current phase of the JobRequest.
-                  E.g., Pending, Running, Succeeded, Failed.
-                type: string
+                  Phase represents the current phase of the Ktask.
+                  E.g., Pending, Processing, Succeeded, Failed.
+                type: string 
             type: object
             x-kubernetes-preserve-unknown-fields: true
         required:

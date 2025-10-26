@@ -24,8 +24,8 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// JobRequestSpec defines the desired state of JobRequest
-type JobRequestSpec struct {
+// KtaskSpec defines the desired state of Ktask
+type KtaskSpec struct {
 	// Image is the container image to run for the job.
 	// This field is required.
 	// +kubebuilder:validation:Required
@@ -56,18 +56,18 @@ type JobRequestSpec struct {
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
-// Define the valid phases for a JobRequest
+// Define the valid phases for a Ktask
 const (
-	JobRequestPhasePending    = "Pending"
-	JobRequestPhaseProcessing = "Processing"
-	JobRequestPhaseSucceeded  = "Succeeded"
-	JobRequestPhaseFailed     = "Failed"
+	PhasePending    = "Pending"
+	PhaseProcessing = "Processing"
+	PhaseSucceeded  = "Succeeded"
+	PhaseFailed     = "Failed"
 )
 
-// Condition types for a JobRequest.
+// Condition types for a Ktask.
 const (
-	// JobReady indicates whether the underlying Job is ready and the JobRequest is progressing.
-	// This is a positive-polarity condition.
+	// JobReady indicates whether the underlying Job is ready and the Ktask is progressing.
+	// This is a positive-polarity condition, meaning its status is True when the job is ready.
 	JobReady string = "JobReady"
 
 	// Reasons for conditions
@@ -81,20 +81,17 @@ const (
 	// ReasonConflictError indicates a conflict with the state of the system, such as a missing
 	// ConfigMap or Secret, that prevents the job from running.
 	ReasonConflictError string = "ConflictError"
-	// ReasonRecoverableLogicError indicates a failure in the application logic that might be
-	// recoverable with code changes.
-	ReasonRecoverableLogicError string = "RecoverableLogicError"
 )
 
-// JobRequestStatus defines the observed state of JobRequest.
+// KtaskStatus defines the observed state of Ktask.
 // +kubebuilder:pruning:PreserveUnknownFields
 // This marker is required to preserve the `conditions` field,
 // which is not always known by the CRD schema.
-type JobRequestStatus struct {
+type KtaskStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Important: Run "make" to regenerate code after modifying this file.
 
-	// Phase represents the current phase of the JobRequest.
+	// Phase represents the current phase of the Ktask.
 	// E.g., Pending, Running, Succeeded, Failed.
 	// +optional
 	Phase string `json:"phase,omitempty"`
@@ -102,7 +99,7 @@ type JobRequestStatus struct {
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 
-	// conditions represent the current state of the JobRequest resource.
+	// conditions represent the current state of the Ktask resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
 	// Standard condition types include:
@@ -120,32 +117,32 @@ type JobRequestStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// JobRequest is the Schema for the jobrequests API
-type JobRequest struct {
+// Ktask is the Schema for the ktasks API
+type Ktask struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of JobRequest
+	// spec defines the desired state of Ktask
 	// +required
-	Spec JobRequestSpec `json:"spec"`
+	Spec KtaskSpec `json:"spec"`
 
-	// status defines the observed state of JobRequest
+	// status defines the observed state of Ktask
 	// +optional
-	Status JobRequestStatus `json:"status,omitempty,omitzero"`
+	Status KtaskStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// JobRequestList contains a list of JobRequest
-type JobRequestList struct {
+// KtaskList contains a list of Ktask
+type KtaskList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []JobRequest `json:"items"`
+	Items           []Ktask `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&JobRequest{}, &JobRequestList{})
+	SchemeBuilder.Register(&Ktask{}, &KtaskList{})
 }

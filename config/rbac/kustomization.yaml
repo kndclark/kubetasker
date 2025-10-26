@@ -20,9 +20,7 @@ resources:
 - metrics_reader_role.yaml
 # For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
 # default, aiding admins in cluster management. Those roles are
-# not used by the kubetasker itself. You can comment the following lines
-# if you do not want those helpers be installed with your Project.
-- jobrequest_admin_role.yaml
-- jobrequest_editor_role.yaml
-- jobrequest_viewer_role.yaml
-
+# not used by the kubetasker itself. You can comment the following lines if you do not want these helpers to be installed with your Project.
+- ktask_admin_role.yaml
+- ktask_editor_role.yaml
+- ktask_viewer_role.yaml

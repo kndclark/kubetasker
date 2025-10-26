@@ -303,13 +303,13 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyFrontendHealth, "2m").Should(Succeed())
 		})
 
-		It("should create a JobRequest via the frontend API and see it succeed", func() {
-			const jobRequestName = "test-jr-via-frontend"
-			const jobName = jobRequestName + "-job"
-			// JSON payload for the JobRequest. Note the escaping for the shell command.
-			jobRequestJSON := fmt.Sprintf(`{
+		It("should create a Ktask via the frontend API and see it succeed", func() {
+			const ktaskName = "test-ktask-via-frontend"
+			const jobName = ktaskName + "-job"
+			// JSON payload for the Ktask. Note the escaping for the shell command.
+			ktaskJSON := fmt.Sprintf(`{
 				"apiVersion": "task.ktasker.com/v1",
-				"kind": "JobRequest",
+				"kind": "Ktask",
 				"metadata": {
 					"name": "%s",
 					"namespace": "%s"
@@ -318,19 +318,19 @@ var _ = Describe("Manager", Ordered, func() {
 					"image": "busybox",
 					"command": ["/bin/sh", "-c", "echo 'Hello from frontend test'; exit 0"]
 				}
-			}`, jobRequestName, namespace)
+			}`, ktaskName, namespace)
 
 			// The JSON must be a compact, single-line string to be safely passed
 			// inside the shell command for curl.
-			jobRequestJSON = strings.ReplaceAll(jobRequestJSON, "\n", "")
-			jobRequestJSON = strings.ReplaceAll(jobRequestJSON, "\t", "")
+			ktaskJSON = strings.ReplaceAll(ktaskJSON, "\n", "")
+			ktaskJSON = strings.ReplaceAll(ktaskJSON, "\t", "")
 
-			By("posting a new JobRequest to the frontend service")
+			By("posting a new Ktask to the frontend service")
 			// Use a temporary pod to send a POST request to the frontend service.
 			// Multi-step approach done to avoid shell fragility.
 			posterPodName := "curl-poster"
-			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/jobrequest -o /dev/null -w %%{http_code}",
-				jobRequestJSON, frontendServiceName, namespace)
+			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}",
+				ktaskJSON, frontendServiceName, namespace)
 			output, err := runInCurlPod(posterPodName, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
@@ -346,16 +346,16 @@ var _ = Describe("Manager", Ordered, func() {
 			// Give it enough time for the controller to reconcile and the job to run.
 			Eventually(verifyJobSucceeded, "2m").Should(Succeed())
 
-			// Cleanup the JobRequest
-			cmd := exec.Command("kubectl", "delete", "jobrequest", jobRequestName, "-n", namespace, "--ignore-not-found")
+			// Cleanup the Ktask
+			cmd := exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 		})
 
-		It("should handle a JobRequest that results in a successful Job", func() { // Test for successful job
-			const jobRequestName = "test-jobrequest-success"
-			const jobRequestYAML = `
+		It("should handle a Ktask that results in a successful Job", func() { // Test for successful job
+			const ktaskName = "test-ktask-success"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -363,25 +363,25 @@ spec:
   image: busybox
   command: ["/bin/sh", "-c", "echo 'Success'; exit 0"]
 `
-			By("creating a JobRequest that is destined to succeed")
+			By("creating a Ktask that is destined to succeed")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for the JobRequest status to become 'Succeeded'")
-			verifyJobRequestSucceeded := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+			By("waiting for the Ktask status to become 'Succeeded'")
+			verifyKtaskSucceeded := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Succeeded"), "JobRequest phase should be Succeeded")
+				g.Expect(output).To(Equal("Succeeded"), "Ktask phase should be Succeeded")
 			}
-			Eventually(verifyJobRequestSucceeded, 60*time.Second).Should(Succeed())
+			Eventually(verifyKtaskSucceeded, 60*time.Second).Should(Succeed())
 
 			By("verifying the underlying Job is marked as succeeded")
 			verifyJobSucceeded := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "job", jobRequestName+"-job",
+				cmd := exec.Command("kubectl", "get", "job", ktaskName+"-job",
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='Complete')].status}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -390,11 +390,11 @@ spec:
 			Eventually(verifyJobSucceeded).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a RecoverableLogicError", func() { // Test for recoverable logic error
-			const jobRequestName = "test-jobrequest-logic-error"
-			const jobRequestYAML = `
+		It("should handle a Ktask that results in a RecoverableLogicError", func() { // Test for recoverable logic error
+			const ktaskName = "test-ktask-logic-error"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -403,36 +403,36 @@ spec:
   command: ["/bin/sh", "-c", "exit 1"]
   restartPolicy: Never
 `
-			By("creating a JobRequest that is destined to fail")
+			By("creating a Ktask that is destined to fail")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for the JobRequest status to become 'Failed'")
-			verifyJobRequestFailed := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+			By("waiting for the Ktask status to become 'Failed'")
+			verifyKtaskFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+				g.Expect(output).To(Equal("Failed"), "Ktask phase should be Failed")
 			}
 
-			By("verifying the failure reason is RecoverableLogicError")
+			By("verifying the failure reason is TransientFailure")
 			verifyFailureReason := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("RecoverableLogicError"))
+				g.Expect(output).To(Equal("TransientFailure"))
 			}
 			// The Job has a backoffLimit of 4, so this might take some time.
 			// We'll give it a generous timeout.
-			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
+			Eventually(verifyKtaskFailed, 3*time.Minute).Should(Succeed())
 
 			By("verifying the underlying Job is marked as failed")
 			verifyJobFailed := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "job", jobRequestName+"-job",
+				cmd := exec.Command("kubectl", "get", "job", ktaskName+"-job",
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='Failed')].status}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -442,11 +442,11 @@ spec:
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a PermanentFailure", func() { // Test for permanent failure
-			const jobRequestName = "test-jobrequest-permanent-fail"
-			const jobRequestYAML = `
+		It("should handle a Ktask that results in a PermanentFailure", func() { // Test for permanent failure
+			const ktaskName = "test-ktask-permanent-fail"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -455,25 +455,25 @@ spec:
   command: ["/bin/sh", "-c", "echo 'This will not run'"]
   restartPolicy: Never
 `
-			By("creating a JobRequest with a bad image name")
+			By("creating a Ktask with a bad image name")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for the JobRequest status to become 'Failed'")
-			verifyJobRequestFailed := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+			By("waiting for the Ktask status to become 'Failed'")
+			verifyKtaskFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+				g.Expect(output).To(Equal("Failed"), "Ktask phase should be Failed")
 			}
-			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
+			Eventually(verifyKtaskFailed, 3*time.Minute).Should(Succeed())
 
 			By("verifying the failure reason is PermanentFailure")
 			verifyFailureReason := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -482,11 +482,11 @@ spec:
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
 
-		It("should handle a JobRequest that results in a ConflictError", func() { // Test for conflict error
-			const jobRequestName = "test-jobrequest-conflict-fail"
-			const jobRequestYAML = `
+		It("should handle a Ktask that results in a ConflictError", func() { // Test for conflict error
+			const ktaskName = "test-ktask-conflict-fail"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -502,25 +502,25 @@ spec:
         name: non-existent-secret
         key: password
 `
-			By("creating a JobRequest that references a missing ConfigMap")
+			By("creating a Ktask that references a missing ConfigMap")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for the JobRequest status to become 'Failed'")
-			verifyJobRequestFailed := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+			By("waiting for the Ktask status to become 'Failed'")
+			verifyKtaskFailed := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Failed"), "JobRequest phase should be Failed")
+				g.Expect(output).To(Equal("Failed"), "Ktask phase should be Failed")
 			}
-			Eventually(verifyJobRequestFailed, 3*time.Minute).Should(Succeed())
+			Eventually(verifyKtaskFailed, 3*time.Minute).Should(Succeed())
 
 			By("verifying the failure reason is ConflictError")
 			verifyFailureReason := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "jobrequest", jobRequestName,
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -529,12 +529,12 @@ spec:
 			Eventually(verifyFailureReason).Should(Succeed())
 		})
 
-		It("should clean up the Job when a JobRequest is deleted", func() {
-			const jobRequestName = "test-jobrequest-cleanup"
-			const jobName = jobRequestName + "-job"
-			const jobRequestYAML = `
+		It("should clean up the Job when a Ktask is deleted", func() {
+			const ktaskName = "test-ktask-cleanup"
+			const jobName = ktaskName + "-job"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -542,9 +542,9 @@ spec:
   image: busybox
   command: ["/bin/sh", "-c", "echo 'Cleanup test'"]
 `
-			By("creating a JobRequest for the cleanup test")
+			By("creating a Ktask for the cleanup test")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -556,8 +556,8 @@ spec:
 			}
 			Eventually(verifyJobCreated, 60*time.Second).Should(Succeed())
 
-			By("deleting the JobRequest")
-			cmd = exec.Command("kubectl", "delete", "jobrequest", jobRequestName, "-n", namespace)
+			By("deleting the Ktask")
+			cmd = exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -565,17 +565,17 @@ spec:
 			verifyJobDeleted := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "job", jobName, "-n", namespace)
 				_, err := utils.Run(cmd)
-				g.Expect(err).To(HaveOccurred(), "Job should be deleted after JobRequest is deleted")
+				g.Expect(err).To(HaveOccurred(), "Job should be deleted after Ktask is deleted")
 				g.Expect(err.Error()).To(ContainSubstring("not found"))
 			}
 			Eventually(verifyJobDeleted, 60*time.Second).Should(Succeed())
 		})
 
 		It("should be rejected by the validating webhook when updating immutable fields", func() {
-			const jobRequestName = "test-jobrequest-webhook"
-			const jobRequestYAML = `
+			const ktaskName = "test-ktask-webhook"
+			const ktaskYAML = `
 apiVersion: task.ktasker.com/v1
-kind: JobRequest
+kind: Ktask
 metadata:
   name: %s
   namespace: %s
@@ -583,9 +583,9 @@ spec:
   image: busybox
   command: ["/bin/sh", "-c", "echo 'webhook test'"]
 `
-			By("creating a JobRequest for the webhook test")
+			By("creating a Ktask for the webhook test")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(fmt.Sprintf(jobRequestYAML, jobRequestName, namespace))
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -596,7 +596,7 @@ spec:
 			// The image field is often immutable. The webhook should reject this change.
 			// We use 'kubectl patch' for a direct update attempt.
 			patch := `{"spec":{"image":"nginx"}}`
-			cmd = exec.Command("kubectl", "patch", "jobrequest", jobRequestName,
+			cmd = exec.Command("kubectl", "patch", "ktask", ktaskName,
 				"-n", namespace, "--type=merge", "-p", patch)
 
 			// We expect this command to fail.
@@ -604,7 +604,7 @@ spec:
 			Expect(err).To(HaveOccurred(), "The validating webhook should reject the update.")
 
 			// Check for the specific error message from the webhook.
-			Expect(output).To(ContainSubstring("admission webhook \"vjobrequest.kb.io\" denied the request"))
+			Expect(output).To(ContainSubstring("admission webhook \"vktask.kb.io\" denied the request"), "The webhook rejection message was not found in the output.")
 		})
 	})
 })

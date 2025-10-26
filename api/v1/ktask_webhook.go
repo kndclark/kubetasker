@@ -28,10 +28,10 @@ import (
 )
 
 // log is for logging in this package.
-var jobrequestlog = logf.Log.WithName("jobrequest-resource")
+var ktasklog = logf.Log.WithName("ktask-resource")
 
 // SetupWebhookWithManager will setup the manager to manage the webhooks
-func (r *JobRequest) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (r *Ktask) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()
@@ -39,13 +39,13 @@ func (r *JobRequest) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
-// +kubebuilder:webhook:path=/mutate-custom-custom-io-v1-jobrequest,mutating=true,failurePolicy=fail,sideEffects=None,groups=custom.custom.io,resources=jobrequests,verbs=create;update,versions=v1,name=mjobrequest.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-task-ktasker-com-v1-ktask,mutating=true,failurePolicy=fail,sideEffects=None,groups=task.ktasker.com,resources=ktasks,verbs=create;update,versions=v1,name=mktask.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &JobRequest{}
+var _ webhook.Defaulter = &Ktask{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
-func (r *JobRequest) Default() {
-	jobrequestlog.Info("default", "name", r.Name)
+func (r *Ktask) Default() {
+	ktasklog.Info("default", "name", r.Name)
 	// Default the restart policy if it's not set.
 	if r.Spec.RestartPolicy == "" {
 		r.Spec.RestartPolicy = "OnFailure"
@@ -64,42 +64,42 @@ func (r *JobRequest) Default() {
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern: /validate-{group}-{version}-{kind}
-// +kubebuilder:webhook:path=/validate-custom-custom-io-v1-jobrequest,mutating=false,failurePolicy=fail,sideEffects=None,groups=custom.custom.io,resources=jobrequests,verbs=create;update,versions=v1,name=vjobrequest.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-task-ktasker-com-v1-ktask,mutating=false,failurePolicy=fail,sideEffects=None,groups=task.ktasker.com,resources=ktasks,verbs=create;update,versions=v1,name=vktask.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &JobRequest{}
+var _ webhook.Validator = &Ktask{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *JobRequest) ValidateCreate() (admission.Warnings, error) {
-	jobrequestlog.Info("validate create", "name", r.Name)
-	return nil, r.validateJobRequest().ToAggregate()
+func (r *Ktask) ValidateCreate() (admission.Warnings, error) {
+	ktasklog.Info("validate create", "name", r.Name)
+	return nil, r.validateKtask().ToAggregate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *JobRequest) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	jobrequestlog.Info("validate update", "name", r.Name)
-	oldJobRequest, ok := old.(*JobRequest)
+func (r *Ktask) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+	ktasklog.Info("validate update", "name", r.Name)
+	oldKtask, ok := old.(*Ktask)
 	if !ok {
-		return nil, field.InternalError(nil, errors.New("expected old object to be a JobRequest"))
+		return nil, field.InternalError(nil, errors.New("expected old object to be a Ktask"))
 	}
 
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, r.validateJobRequest()...)
+	allErrs = append(allErrs, r.validateKtask()...)
 
 	// Check for immutable fields
-	allErrs = append(allErrs, validateImmutableFields(r, oldJobRequest)...)
+	allErrs = append(allErrs, validateImmutableFields(r, oldKtask)...)
 
 	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *JobRequest) ValidateDelete() (admission.Warnings, error) {
-	jobrequestlog.Info("validate delete", "name", r.Name)
+func (r *Ktask) ValidateDelete() (admission.Warnings, error) {
+	ktasklog.Info("validate delete", "name", r.Name)
 	// No validation needed on deletion.
 	return nil, nil
 }
 
-// validateJobRequest contains the actual validation logic.
-func (r *JobRequest) validateJobRequest() field.ErrorList {
+// validateKtask contains the actual validation logic.
+func (r *Ktask) validateKtask() field.ErrorList {
 	var allErrs field.ErrorList //
 
 	// The image field is required.
@@ -127,7 +127,7 @@ func (r *JobRequest) validateJobRequest() field.ErrorList {
 }
 
 // validateImmutableFields checks that immutable fields have not been changed.
-func validateImmutableFields(new, old *JobRequest) field.ErrorList {
+func validateImmutableFields(new, old *Ktask) field.ErrorList {
 	var allErrs field.ErrorList
 
 	if new.Spec.Image != old.Spec.Image {

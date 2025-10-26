@@ -41,17 +41,17 @@ class EnvVar(BaseModel):
     # but this is a great start for validation.
     value_from: Optional[dict] = Field(None, alias="valueFrom")
 
-class JobRequestSpec(BaseModel):
+class KtaskSpec(BaseModel):
     image: str
     command: Optional[List[str]] = None
     env: Optional[List[EnvVar]] = None
     restart_policy: str = Field("OnFailure", alias="restartPolicy")
 
-class JobRequestPayload(BaseModel):
+class KtaskPayload(BaseModel):
     api_version: str = Field(..., alias="apiVersion")
     kind: str
     metadata: ObjectMeta
-    spec: JobRequestSpec
+    spec: KtaskSpec
 
     @field_validator('api_version')
     def validate_api_version(cls, v):
@@ -61,8 +61,8 @@ class JobRequestPayload(BaseModel):
     
     @field_validator('kind')
     def validate_kind(cls, v):
-        if v != "JobRequest":
-            raise ValueError('kind must be "JobRequest"')
+        if v != "Ktask":
+            raise ValueError('kind must be "Ktask"')
         return v
 
 # This will be initialized once and cached.
@@ -125,84 +125,84 @@ def health_check():
     '''
     return {"status": "ok"}
 
-# Create a new JobRequest custom resource.
-@app.post("/jobrequest")
-def create_job_request(
-    job_request: JobRequestPayload,
+# Create a new Ktask custom resource.
+@app.post("/ktask")
+def create_ktask(
+    ktask: KtaskPayload,
     api: client.CustomObjectsApi = Depends(get_k8s_api)
 ):
     '''
-    Accept POST /jobrequest to create a new JobRequest CRD.
+    Accept POST /ktask to create a new Ktask CRD.
     '''
     if api is None:
         raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
-    log.info(f"Received request to create JobRequest '{job_request.metadata.name}' in namespace '{job_request.metadata.namespace}'")
+    log.info(f"Received request to create Ktask '{ktask.metadata.name}' in namespace '{ktask.metadata.namespace}'")
     try:
         # Convert the Pydantic model back to a dict for the k8s client.
         # `by_alias=True` ensures fields like `restartPolicy` use their correct names.
-        job_request_dict = job_request.model_dump(by_alias=True, exclude_none=True)
+        ktask_dict = ktask.model_dump(by_alias=True, exclude_none=True)
         api_response = api.create_namespaced_custom_object(
             group="task.ktasker.com",
             version="v1",
-            namespace=job_request.metadata.namespace,
-            plural="jobrequests",
-            body=job_request_dict,
+            namespace=ktask.metadata.namespace,
+            plural="ktasks",
+            body=ktask_dict,
         )
-        log.info(f"Successfully created JobRequest '{job_request.metadata.name}'")
-        return {"message": "JobRequest submitted", "job_request": api_response}
+        log.info(f"Successfully created Ktask '{ktask.metadata.name}'")
+        return {"message": "Ktask submitted", "ktask": api_response}
     except ApiException as e:
-        log.error(f"Failed to create JobRequest '{job_request.metadata.name}'", exc_info=True)
-        raise HTTPException(status_code=e.status, detail={"error": "Failed to create JobRequest", "details": e.reason, "body": json.loads(e.body)})
+        log.error(f"Failed to create Ktask '{ktask.metadata.name}'", exc_info=True)
+        raise HTTPException(status_code=e.status, detail={"error": "Failed to create Ktask", "details": e.reason, "body": json.loads(e.body)})
 
 # List/query job statuses.
-@app.get("/jobrequest")
-def list_job_requests(
+@app.get("/ktask")
+def list_ktasks(
     namespace: str = "default",
     api: client.CustomObjectsApi = Depends(get_k8s_api)
 ):
     '''
-    Provide GET endpoint for querying JobRequest statuses in a given namespace.
+    Provide GET endpoint for querying Ktask statuses in a given namespace.
     '''
     if api is None:
         raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
-    log.info(f"Received request to list JobRequests in namespace '{namespace}'")
+    log.info(f"Received request to list Ktasks in namespace '{namespace}'")
     try:
         api_response = api.list_namespaced_custom_object(
             group="task.ktasker.com",
             version="v1",
             namespace=namespace,
-            plural="jobrequests",
+            plural="ktasks",
         )
         return api_response
     except ApiException as e:
-        log.error(f"Failed to list JobRequests in namespace '{namespace}'", exc_info=True)
-        raise HTTPException(status_code=e.status, detail={"error": "Failed to list JobRequests", "details": e.reason, "body": json.loads(e.body)})
+        log.error(f"Failed to list Ktasks in namespace '{namespace}'", exc_info=True)
+        raise HTTPException(status_code=e.status, detail={"error": "Failed to list Ktasks", "details": e.reason, "body": json.loads(e.body)})
 
 # Get a single job's status.
-@app.get("/jobrequest/{job_name}")
-def get_job_request(
+@app.get("/ktask/{job_name}")
+def get_ktask(
     job_name: str,
     namespace: str = "default",
     api: client.CustomObjectsApi = Depends(get_k8s_api)
 ):
     '''
-    Provide GET endpoint for querying a single JobRequest's status in a given namespace.
+    Provide GET endpoint for querying a single Ktask's status in a given namespace.
     '''
     if api is None:
         raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
-    log.info(f"Received request to get JobRequest '{job_name}' in namespace '{namespace}'")
+    log.info(f"Received request to get Ktask '{job_name}' in namespace '{namespace}'")
     try:
         api_response = api.get_namespaced_custom_object(
             group="task.ktasker.com",
             version="v1",
             name=job_name,
             namespace=namespace,
-            plural="jobrequests",
+            plural="ktasks",
         )
         return api_response
     except ApiException as e:
         if e.status == 404:
-            log.warning(f"JobRequest '{job_name}' not found in namespace '{namespace}'")
-            raise HTTPException(status_code=404, detail=f"JobRequest '{job_name}' not found in namespace '{namespace}'.")
-        log.error(f"Failed to retrieve JobRequest '{job_name}'", exc_info=True)
-        raise HTTPException(status_code=e.status, detail={"error": f"Failed to retrieve JobRequest '{job_name}'", "details": e.reason, "body": json.loads(e.body)})
+            log.warning(f"Ktask '{job_name}' not found in namespace '{namespace}'")
+            raise HTTPException(status_code=404, detail=f"Ktask '{job_name}' not found in namespace '{namespace}'.")
+        log.error(f"Failed to retrieve Ktask '{job_name}'", exc_info=True)
+        raise HTTPException(status_code=e.status, detail={"error": f"Failed to retrieve Ktask '{job_name}'", "details": e.reason, "body": json.loads(e.body)})

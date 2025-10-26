@@ -186,7 +186,7 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := (&controller.JobRequestReconciler{
+	if err := (&controller.KtaskReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
@@ -194,7 +194,7 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := (&customv1.JobRequest{}).SetupWebhookWithManager(mgr); err != nil {
+		if err := (&customv1.Ktask{}).SetupWebhookWithManager(mgr); err != nil {
 			return err
 		}
 	}
