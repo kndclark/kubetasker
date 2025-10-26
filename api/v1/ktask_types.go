@@ -81,9 +81,6 @@ const (
 	// ReasonConflictError indicates a conflict with the state of the system, such as a missing
 	// ConfigMap or Secret, that prevents the job from running.
 	ReasonConflictError string = "ConflictError"
-	// ReasonRecoverableLogicError indicates a failure in the application logic that might be
-	// recoverable with code changes.
-	ReasonRecoverableLogicError string = "RecoverableLogicError"
 )
 
 // KtaskStatus defines the observed state of Ktask.

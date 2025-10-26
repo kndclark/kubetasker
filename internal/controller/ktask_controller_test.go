@@ -404,41 +404,22 @@ var _ = Describe("Ktask Controller", func() {
 			Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
 			Eventually(func() bool {
 				return errors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(mockPod), &corev1.Pod{}))
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+			}, time.Second*20, time.Millisecond*250).Should(BeTrue())
 		})
 
-		It("should update status to Failed with RecoverableLogicError for exit code 1", func() {
+		It("should update status to Failed with TransientFailure for a job that exceeds backoff limit", func() {
 			By("Reconciling to create the Job")
 			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
+			By("Finding the created Job and simulating its failure due to non-zero exit code")
 			jobNamespacedName := types.NamespacedName{Name: resourceName + "-job", Namespace: "default"}
 			createdJob := &batchv1.Job{}
 			Eventually(func() error { return k8sClient.Get(ctx, jobNamespacedName, createdJob) }, time.Second*10, time.Millisecond*250).Should(Succeed())
 
-			By("Creating a mock Pod with a failed exit code")
-			mockPod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      resourceName + "-pod-logic-error",
-					Namespace: "default",
-					Labels:    map[string]string{"job-name": jobNamespacedName.Name},
-				},
-				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "busybox"}}},
-			}
-			Expect(k8sClient.Create(ctx, mockPod)).To(Succeed())
-
-			mockPod.Status.ContainerStatuses = []corev1.ContainerStatus{
-				{
-					Name: "main",
-					State: corev1.ContainerState{
-						Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error"},
-					},
-				},
-			}
-			Expect(k8sClient.Status().Update(ctx, mockPod)).To(Succeed())
-
-			By("Simulating Job failure")
+			// Manually update the Job's status to Failed with a reason that implies a logic error.
+			// In a real cluster, this would happen after multiple pod failures with non-zero exit codes.
 			now := metav1.Now()
 			createdJob.Status.StartTime = &now
 			createdJob.Status.Conditions = []batchv1.JobCondition{
@@ -446,7 +427,7 @@ var _ = Describe("Ktask Controller", func() {
 				{
 					Type:   batchv1.JobFailureTarget,
 					Status: corev1.ConditionTrue,
-					Reason: "BackoffLimitExceeded",
+					Reason: "BackoffLimitExceeded", // This is the typical reason for repeated non-zero exits.
 				},
 			}
 			createdJob.Status.Failed = 1
@@ -456,7 +437,7 @@ var _ = Describe("Ktask Controller", func() {
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking for RecoverableLogicError reason")
+			By("Checking for TransientFailure reason")
 			updatedKtask := &customv1.Ktask{}
 			Eventually(func(g Gomega) {
 				err := k8sClient.Get(ctx, typeNamespacedName, updatedKtask)
@@ -466,15 +447,8 @@ var _ = Describe("Ktask Controller", func() {
 				failedCondition := getCondition(updatedKtask, customv1.JobReady)
 				g.Expect(failedCondition).NotTo(BeNil())
 				g.Expect(failedCondition.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonRecoverableLogicError))
+				g.Expect(failedCondition.Reason).To(Equal(customv1.ReasonTransientFailure))
 			}, time.Second*10, time.Millisecond*250).Should(Succeed())
-
-			// Clean up the mock pod
-			By("Cleaning up the mock logic error pod")
-			Expect(k8sClient.Delete(ctx, mockPod)).To(Succeed())
-			Eventually(func() bool {
-				return errors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(mockPod), &corev1.Pod{}))
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 
 		It("should not create a new Job if the Ktask is already Succeeded", func() {
@@ -573,7 +547,7 @@ var _ = Describe("Ktask Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(result.RequeueAfter).To(Equal(time.Second * 10))
+			Expect(result.RequeueAfter).To(Equal(time.Second * 2))
 		})
 	})
 })

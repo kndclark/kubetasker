@@ -177,8 +177,9 @@ func (r *KtaskReconciler) reconcileExistingJob(ctx context.Context, ktask *custo
 				Message: "The job completed successfully.",
 			})
 			if err := r.Status().Update(ctx, ktask); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, err // Requeue on error
 			}
+			return ctrl.Result{RequeueAfter: time.Second * 1}, nil // Requeue to confirm status
 		}
 		return ctrl.Result{}, nil
 	}
@@ -219,7 +220,7 @@ func (r *KtaskReconciler) reconcileExistingJob(ctx context.Context, ktask *custo
 
 	// 4. If none of the above, the job is still processing.
 	log.Info("Child Job is still processing")
-	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+	return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 }
 
 // checkPodFailures inspects the pods of a job for fail-fast conditions.
@@ -253,15 +254,6 @@ func (r *KtaskReconciler) checkPodFailures(ctx context.Context, ktask *customv1.
 					}
 					return true, nil // Status updated, stop further reconciliation
 				}
-			}
-			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
-				log.Info("Detected recoverable pod failure", "exitCode", containerStatus.State.Terminated.ExitCode)
-				ktask.Status.Phase = customv1.PhaseFailed
-				meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{Type: customv1.JobReady, Status: metav1.ConditionFalse, Reason: customv1.ReasonRecoverableLogicError, Message: fmt.Sprintf("Job failed with a non-zero exit code (%d).", containerStatus.State.Terminated.ExitCode)})
-				if err := r.Status().Update(ctx, ktask); err != nil {
-					return false, err
-				}
-				return true, nil // Status updated, stop further reconciliation
 			}
 		}
 	}

@@ -418,13 +418,13 @@ spec:
 				g.Expect(output).To(Equal("Failed"), "Ktask phase should be Failed")
 			}
 
-			By("verifying the failure reason is RecoverableLogicError")
+			By("verifying the failure reason is TransientFailure")
 			verifyFailureReason := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
 					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].reason}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("RecoverableLogicError"))
+				g.Expect(output).To(Equal("TransientFailure"))
 			}
 			// The Job has a backoffLimit of 4, so this might take some time.
 			// We'll give it a generous timeout.

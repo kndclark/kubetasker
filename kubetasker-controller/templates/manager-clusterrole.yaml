@@ -27,14 +27,14 @@ rules:
   - watch
 - apiGroups:
   - task.ktasker.com
+  resources:
+  - ktasks
   verbs:
   - create
   - delete
   - get
   - list
   - patch
-  resources:
-  - ktasks
   - update
   - watch
 - apiGroups:
