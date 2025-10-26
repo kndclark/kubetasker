@@ -123,6 +123,21 @@ var _ = Describe("Ktask Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring("field is immutable"))
 		})
 
+		It("should pass validation on update if a mutable field is changed", func() {
+			oldKtask := &Ktask{
+				Spec: KtaskSpec{
+					Image:   "original-image",
+					Command: []string{"echo", "hello"},
+				},
+			}
+
+			newKtask := oldKtask.DeepCopy()
+			newKtask.Spec.Command = []string{"echo", "world"} // Change a mutable field
+
+			_, err := newKtask.ValidateUpdate(oldKtask)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
 		It("should fail validation on update if the command is empty", func() {
 			ktask := &Ktask{
 				Spec: KtaskSpec{

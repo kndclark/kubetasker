@@ -129,6 +129,20 @@ var _ = Describe("Ktask Controller", func() {
 			Expect(createdJob.Spec.Template.Spec.ServiceAccountName).To(Equal("test-sa"))
 		})
 
+		It("should not return an error when the resource is not found", func() {
+			By("Ensuring the resource does not exist")
+			// The AfterEach should have cleaned it up, but we make sure.
+			nonExistentName := types.NamespacedName{Name: "i-do-not-exist", Namespace: "default"}
+
+			By("Reconciling a non-existent resource")
+			controllerReconciler := &KtaskReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nonExistentName})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
 		It("should update the Ktask status to Succeeded when the Job completes", func() {
 			By("Reconciling the created resource to create the Job")
 			controllerReconciler := &KtaskReconciler{
