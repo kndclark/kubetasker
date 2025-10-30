@@ -1,16 +1,4 @@
 ---
-# Source: kubetasker-frontend/templates/rbac.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: kubetasker-frontend-test
-  labels:
-    helm.sh/chart: kubetasker-frontend-0.1.0
-    app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.0.1"
-    app.kubernetes.io/managed-by: Helm
----
 # Source: kubetasker-frontend/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -71,7 +59,7 @@ spec:
     app.kubernetes.io/instance: kubetasker-frontend-test
   ports:
     - protocol: TCP
-      port: 80
+      port: 8000
       targetPort: http
 ---
 # Source: kubetasker-frontend/templates/deployment.yaml
@@ -103,7 +91,7 @@ spec:
         image: "ktasker.com/kubetasker-frontend:v0.0.1"
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 80
+        - containerPort: 8000
           name: http
         livenessProbe:
           httpGet:
