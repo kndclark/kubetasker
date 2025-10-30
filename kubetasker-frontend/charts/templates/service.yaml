@@ -12,4 +12,3 @@ spec:
     - protocol: TCP
       port: {{ .Values.service.port }}
       targetPort: http
-

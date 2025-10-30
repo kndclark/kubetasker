@@ -76,9 +76,15 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
 		By("deploying the frontend API service")
-		frontendManifestPath := filepath.Join(projectRootDir, "kubetasker-frontend", "deployment.yaml")
-		cmd = exec.Command("kubectl", "apply", "-n", namespace, "-f", frontendManifestPath)
+		frontendChartPath := filepath.Join(projectRootDir, "kubetasker-frontend", "charts")
+		cmd = exec.Command("helm", "install", frontendDeploymentName, frontendChartPath,
+			"--namespace", namespace,
+			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),
+			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
+			"--set", "image.pullPolicy=IfNotPresent",
+			"--wait")
 		_, err = utils.Run(cmd)
+
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the frontend API service")
 
 		By("verifying the controller-manager pod is running")
@@ -101,7 +107,7 @@ var _ = Describe("Manager", Ordered, func() {
 		verifyFrontendUp := func(g Gomega) {
 			// Use `kubectl wait` for a more reliable check. This ensures the pod is not only
 			// running but also ready to receive traffic before we proceed.
-			cmd := exec.Command("kubectl", "wait", "pod", "-l", "app=kubetasker-frontend",
+			cmd := exec.Command("kubectl", "wait", "pod", "-l", "app.kubernetes.io/name=kubetasker-frontend",
 				"--for=condition=Ready", "--timeout=2m", "-n", namespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred(), "Frontend pod did not become ready in time: %s", output)
@@ -122,10 +128,13 @@ var _ = Describe("Manager", Ordered, func() {
 		}
 
 		By("cleaning up the frontend API service")
-		frontendManifestPath := filepath.Join(projectRootDir, "kubetasker-frontend", "deployment.yaml")
-		cmd = exec.Command("kubectl", "delete", "-n", namespace, "-f", frontendManifestPath, "--ignore-not-found")
+		cmd = exec.Command("helm", "uninstall", frontendDeploymentName, "--namespace", namespace)
 		if _, err := utils.Run(cmd); err != nil {
-			_, _ = fmt.Fprintf(GinkgoWriter, "warning: failed to delete frontend deployment: %v\n", err)
+			// Helm uninstall might fail if the release was not found, which is okay.
+			// We can make this check more robust if needed, but for cleanup, logging a warning is sufficient.
+			if !strings.Contains(err.Error(), "release: not found") {
+				_, _ = fmt.Fprintf(GinkgoWriter, "warning: failed to uninstall frontend helm release: %v\n", err)
+			}
 		}
 
 		By("undeploying the controller-manager")
