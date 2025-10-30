@@ -82,6 +82,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
+			"--set", "service.name="+frontendServiceName,
 			"--wait")
 		_, err = utils.Run(cmd)
 
