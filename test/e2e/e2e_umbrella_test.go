@@ -24,9 +24,14 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 
 	BeforeAll(func() {
 		By("creating a separate namespace for umbrella chart tests")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
+		// Use apply to be idempotent.
+		cmd := exec.Command("kubectl", "create", "ns", namespace, "--dry-run=client", "-o", "yaml")
+		nsYAML, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(nsYAML)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace for umbrella test")
 
 		By("deploying KubeTasker with the umbrella chart")
 		umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
@@ -37,6 +42,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 			"--set", fmt.Sprintf("kubetasker-controller.image.tag=%s", strings.Split(projectImage, ":")[1]),
 			"--set", "kubetasker-controller.image.pullPolicy=IfNotPresent",
 			"--set", "kubetasker-controller.fullnameOverride=kubetasker-umbrella-controller",
+			"--set", "kubetasker-controller.webhookPrefix=umbrella-",
 			// Set frontend values
 			"--set", fmt.Sprintf("kubetasker-frontend.image.repository=%s", strings.Split(frontendImage, ":")[0]),
 			"--set", fmt.Sprintf("kubetasker-frontend.image.tag=%s", strings.Split(frontendImage, ":")[1]),

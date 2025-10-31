@@ -362,7 +362,7 @@ spec:
       volumes:
       - name: webhook-certs
         secret:
-          secretName: webhook-server-cert
+          secretName: kubetasker-controller-test-serving-cert
 ---
 # Source: kubetasker-controller/templates/cert-manager.yaml
 apiVersion: cert-manager.io/v1
@@ -383,7 +383,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: kubetasker-controller-test-selfsigned-issuer
-  secretName: webhook-server-cert
+  secretName: kubetasker-controller-test-serving-cert
 ---
 # Source: kubetasker-controller/templates/cert-manager.yaml
 apiVersion: cert-manager.io/v1

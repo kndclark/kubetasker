@@ -17,7 +17,7 @@ webhooks:
       namespace: {{ .Release.Namespace }}
       path: /mutate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: mktask.kb.io
+  name: {{ .Values.webhookPrefix }}mktask.kb.io
   rules:
   - apiGroups:
     - task.ktasker.com
@@ -48,7 +48,7 @@ webhooks:
       namespace: {{ .Release.Namespace }}
       path: /validate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: vktask.kb.io
+  name: {{ .Values.webhookPrefix }}vktask.kb.io
   rules:
   - apiGroups:
     - task.ktasker.com
