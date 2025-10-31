@@ -76,7 +76,7 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
 		By("deploying the frontend API service")
-		frontendChartPath := filepath.Join(projectRootDir, "kubetasker-frontend", "charts")
+		frontendChartPath := filepath.Join(projectRootDir, "kubetasker-frontend")
 		cmd = exec.Command("helm", "install", frontendDeploymentName, frontendChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),
