@@ -37,8 +37,6 @@ func (r *Ktask) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 // +kubebuilder:webhook:path=/mutate-task-ktasker-com-v1-ktask,mutating=true,failurePolicy=fail,sideEffects=None,groups=task.ktasker.com,resources=ktasks,verbs=create;update,versions=v1,name=mktask.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Defaulter = &Ktask{}

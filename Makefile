@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= ktasker.com/kubetasker-controller:v0.0.1
 
 # Image URL for the frontend service
 FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1

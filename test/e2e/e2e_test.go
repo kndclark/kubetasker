@@ -71,6 +71,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(projectImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(projectImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
+			"--set", "fullnameOverride="+controllerFullName,
 			"--wait")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
@@ -305,7 +306,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the frontend service is accessible within the cluster")
 			verifyFrontendHealth := func(g Gomega) {
 				curlCmd := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
-				output, err := runInCurlPod("curl-health-check", curlCmd)
+				output, err := runInCurlPod("curl-health-check", namespace, curlCmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("200"))
 			}
@@ -341,7 +342,7 @@ var _ = Describe("Manager", Ordered, func() {
 			posterPodName := "curl-poster"
 			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}",
 				ktaskJSON, frontendServiceName, namespace)
-			output, err := runInCurlPod(posterPodName, shellCmd)
+			output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
 
@@ -638,17 +639,17 @@ func serviceAccountToken() (string, error) {
 // runInCurlPod creates a temporary pod with a curl image, waits for it to be ready,
 // executes a given shell command inside it, and then cleans up the pod.
 // It returns the stdout of the executed command or an error.
-func runInCurlPod(podName, shellCmd string) (string, error) {
+func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
 	// 1. Create the pod that sleeps, providing a stable target for exec.
 	cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
 		"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
 	if _, err := utils.Run(cmd); err != nil {
-		return "", fmt.Errorf("failed to create curl pod %s: %w", podName, err)
+		return "", fmt.Errorf("failed to create curl pod %s in namespace %s: %w", podName, namespace, err)
 	}
 
 	// 2. Defer the cleanup to ensure the pod is deleted even if subsequent steps fail.
 	defer func() {
-		deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace, "--ignore-not-found")
+		deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace, "--ignore-not-found", "--now")
 		_, _ = utils.Run(deleteCmd)
 	}()
 
@@ -656,7 +657,7 @@ func runInCurlPod(podName, shellCmd string) (string, error) {
 	waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
 		"--namespace", namespace, "--timeout=60s")
 	if _, err := utils.Run(waitCmd); err != nil {
-		return "", fmt.Errorf("curl pod %s did not become ready: %w", podName, err)
+		return "", fmt.Errorf("curl pod %s in namespace %s did not become ready: %w", podName, namespace, err)
 	}
 
 	// 4. Execute the provided command inside the pod.

@@ -86,6 +86,12 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(kindClusterName, frontendImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the frontend API image into Kind")
 
+	By("updating helm dependencies for the umbrella chart")
+	umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
+	cmd = exec.Command("helm", "dependency", "update", umbrellaChartPath)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to update helm dependencies")
+
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
 	// we check for its presence before execution.
