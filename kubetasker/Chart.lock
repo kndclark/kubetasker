@@ -1,0 +1,9 @@
+dependencies:
+- name: kubetasker-controller
+  repository: file://../kubetasker-controller
+  version: 0.1.0
+- name: kubetasker-frontend
+  repository: file://../kubetasker-frontend
+  version: 0.1.0
+digest: sha256:f8ac03e6b49409498eed6b5b71efe1db45f31da3f3ff2607ab6e25572443e8e9
+generated: "2025-10-31T11:57:46.354540962-06:00"

@@ -1,0 +1,24 @@
+# Global values can be defined here and accessed by sub-charts.
+# For example:
+# global:
+#   imagePullPolicy: IfNotPresent
+
+# Values for the kubetasker-controller sub-chart.
+# These values will override the defaults in kubetasker-controller/values.yaml
+kubetasker-controller:
+  # To use this umbrella chart, you'll typically override the image here.
+  image:
+    repository: controller
+    tag: "" # Defaults to appVersion if not set
+
+  replicaCount: 1
+
+# Values for the kubetasker-frontend sub-chart.
+# These values will override the defaults in kubetasker-frontend/values.yaml
+kubetasker-frontend:
+  # To use this umbrella chart, you'll typically override the image here.
+  image:
+    repository: frontend
+    tag: "" # Defaults to appVersion if not set
+
+  replicaCount: 1
