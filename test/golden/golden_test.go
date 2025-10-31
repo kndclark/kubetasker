@@ -88,7 +88,7 @@ func TestGoldenFiles(t *testing.T) {
 	t.Run("FrontendStaticOutput", func(t *testing.T) {
 		// Read the static manifest
 		t.Log("Reading static frontend manifest...")
-		staticFile := filepath.Join(projectRoot, "kubetasker-frontend", "charts", "templates", "deployment.yaml")
+		staticFile := filepath.Join(projectRoot, "kubetasker-frontend", "templates", "deployment.yaml")
 		current, err := os.ReadFile(staticFile)
 		require.NoError(t, err, "Failed to read static frontend manifest: %s", staticFile)
 
@@ -107,7 +107,7 @@ func TestGoldenFiles(t *testing.T) {
 		// Run helm template for the frontend
 		releaseName := "kubetasker-frontend-test"
 		t.Logf("Running helm template for frontend with release name '%s'...", releaseName)
-		chartPath := filepath.Join(projectRoot, "kubetasker-frontend", "charts")
+		chartPath := filepath.Join(projectRoot, "kubetasker-frontend")
 		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
 			"image.repository=ktasker.com/kubetasker-frontend", "--set", "image.tag=v0.0.1")
 		output, err := cmd.CombinedOutput()
