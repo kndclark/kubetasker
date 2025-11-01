@@ -616,7 +616,7 @@ spec:
 			Expect(err).To(HaveOccurred(), "The validating webhook should reject the update.")
 
 			// Check for the specific error message from the webhook.
-			Expect(output).To(ContainSubstring("admission webhook \"vktask.kb.io\" denied the request"), "The webhook rejection message was not found in the output.")
+			Expect(output).To(ContainSubstring("admission webhook \"single-vktask.kb.io\" denied the request"), "The webhook rejection message was not found in the output.")
 		})
 	})
 })
