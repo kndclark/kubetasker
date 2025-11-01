@@ -306,7 +306,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should have a healthy frontend API service", func() {
 			By("verifying the frontend service is accessible within the cluster")
 			verifyFrontendHealth := func(g Gomega) {
-				curlCmd := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:80/healthz", frontendServiceName, namespace)
+				curlCmd := fmt.Sprintf("curl -s -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
 				output, err := runInCurlPod("curl-health-check", namespace, curlCmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("200"))
@@ -341,7 +341,7 @@ var _ = Describe("Manager", Ordered, func() {
 			// Use a temporary pod to send a POST request to the frontend service.
 			// Multi-step approach done to avoid shell fragility.
 			posterPodName := "curl-poster"
-			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:80/ktask -o /dev/null -w %%{http_code}",
+			shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}",
 				ktaskJSON, frontendServiceName, namespace)
 			output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
