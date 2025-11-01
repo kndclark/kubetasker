@@ -18,8 +18,9 @@ import (
 
 var _ = Describe("Umbrella Chart", Ordered, func() {
 	const (
-		namespace       = "kubetasker-umbrella-e2e"
-		helmReleaseName = "kubetasker-umbrella"
+		namespace           = "kubetasker-umbrella-e2e"
+		helmReleaseName     = "kubetasker-umbrella"
+		frontendServiceName = "kubetasker-umbrella-frontend"
 	)
 
 	BeforeAll(func() {
@@ -47,6 +48,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 			"--set", fmt.Sprintf("kubetasker-frontend.image.repository=%s", strings.Split(frontendImage, ":")[0]),
 			"--set", fmt.Sprintf("kubetasker-frontend.image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "kubetasker-frontend.image.pullPolicy=IfNotPresent",
+			"--set", "kubetasker-frontend.fullnameOverride="+frontendServiceName,
 			"--wait")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the KubeTasker umbrella chart")
@@ -126,13 +128,10 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 		ktaskJSON = strings.ReplaceAll(ktaskJSON, "\t", "")
 
 		By("posting a new Ktask to the frontend service")
-		// The frontend service name is derived from the Helm release name.
-		frontendServiceName := fmt.Sprintf("%s-kubetasker-frontend", helmReleaseName)
 		posterPodName := "curl-poster-umbrella"
 		shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}",
 			ktaskJSON, frontendServiceName, namespace)
 
-		// Use the existing runInCurlPod helper function
 		output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
@@ -145,7 +144,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal("True"), "Job should have a Complete condition with status True")
 		}
-		Eventually(verifyJobSucceeded, 2*time.Minute).Should(Succeed())
+		Eventually(verifyJobSucceeded).WithTimeout(2 * time.Minute).Should(Succeed())
 
 		By("verifying the Ktask status becomes 'Succeeded'")
 		verifyKtaskSucceeded := func(g Gomega) {
@@ -155,6 +154,6 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal("Succeeded"), "Ktask phase should be Succeeded")
 		}
-		Eventually(verifyKtaskSucceeded, 1*time.Minute).Should(Succeed())
+		Eventually(verifyKtaskSucceeded).WithTimeout(1 * time.Minute).Should(Succeed())
 	})
 })
