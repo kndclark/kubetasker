@@ -28,3 +28,6 @@ go.work
 __pycache__
 .kubetasker_pyenv
 */Notes.md
+
+# Helm chart artifacts
+kubetasker/charts/*.tgz

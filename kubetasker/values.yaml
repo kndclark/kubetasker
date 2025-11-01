@@ -11,12 +11,14 @@ kubetasker-controller:
     repository: controller
     tag: "" # Defaults to appVersion if not set
 
+  fullnameOverride: "kubetasker-controller"
   replicaCount: 1
 
 # Values for the kubetasker-frontend sub-chart.
 # These values will override the defaults in kubetasker-frontend/values.yaml
 kubetasker-frontend:
   # To use this umbrella chart, you'll typically override the image here.
+  fullnameOverride: "kubetasker-frontend"
   image:
     repository: frontend
     tag: "" # Defaults to appVersion if not set
