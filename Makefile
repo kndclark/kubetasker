@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= ktasker.com/kubetasker-controller:v0.0.1
 
 # Image URL for the frontend service
 FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1
@@ -85,9 +85,9 @@ golden-update: ## Update golden manifest files for tests.
 	@echo "--- Updating helm golden file..."
 	helm template kubetasker-controller-test ./kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
 	@echo "--- Updating frontend static golden file..."
-	cat kubetasker-frontend/charts/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
+	cat kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
-	helm template kubetasker-frontend-test ./kubetasker-frontend/charts --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	helm template kubetasker-frontend-test ./kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
 
 .PHONY: golden-diff
 golden-diff: ## Show the differences between golden files for manual review.
@@ -264,6 +264,56 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: install-cert-manager
+install-cert-manager: ## Install cert-manager using Helm if it's not already present.
+	@echo "--- Checking for cert-manager release..."
+	@if ! helm status cert-manager -n cert-manager > /dev/null 2>&1; then \
+		echo "--- cert-manager not found. Installing via Helm..."; \
+		helm repo add jetstack https://charts.jetstack.io --force-update; \
+		helm repo update; \
+		helm install cert-manager jetstack/cert-manager \
+			--namespace cert-manager \
+			--create-namespace \
+			--version v1.14.5 \
+			--set installCRDs=true \
+			--wait; \
+	else \
+		echo "--- cert-manager is already installed. Skipping installation."; \
+	fi
+
+# Variables for the umbrella deployment
+UMBRELLA_NAMESPACE ?= kubetasker-system
+UMBRELLA_RELEASE_NAME ?= kubetasker
+
+.PHONY: deploy-umbrella
+deploy-umbrella: docker-build docker-build-frontend install-cert-manager ## Deploy the entire KubeTasker stack using the umbrella chart.
+	@echo "--- Loading images into Kind cluster..."
+	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
+	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
+	@echo "--- Updating Helm dependencies for umbrella chart..."
+	helm dependency update ./kubetasker
+	@echo "--- Deploying umbrella chart to namespace '$(UMBRELLA_NAMESPACE)' with release name '$(UMBRELLA_RELEASE_NAME)'..."
+	helm upgrade --install $(UMBRELLA_RELEASE_NAME) ./kubetasker \
+		--namespace $(UMBRELLA_NAMESPACE) --create-namespace \
+		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
+		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--wait
+	@echo "--- KubeTasker umbrella chart deployed successfully."
+	@echo "--- To check the status, run: kubectl get pods -n $(UMBRELLA_NAMESPACE)"
+
+.PHONY: undeploy-umbrella
+undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
+	@echo "--- Uninstalling umbrella chart release '$(UMBRELLA_RELEASE_NAME)' from namespace '$(UMBRELLA_NAMESPACE)'..."
+	-helm uninstall $(UMBRELLA_RELEASE_NAME) --namespace $(UMBRELLA_NAMESPACE)
+	@echo "--- Deleting namespace '$(UMBRELLA_NAMESPACE)'..."
+	-$(KUBECTL) delete namespace $(UMBRELLA_NAMESPACE) --ignore-not-found
+	@echo "--- Uninstalling cert-manager..."
+	-helm uninstall cert-manager --namespace cert-manager
+	@echo "--- Deleting cert-manager namespace..."
+	-$(KUBECTL) delete namespace cert-manager --ignore-not-found
 
 ##@ Dependencies
 

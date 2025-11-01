@@ -24,7 +24,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: {{ include "kubetasker-controller.fullname" . }}-selfsigned-issuer
-  secretName: webhook-server-cert
+  secretName: {{ include "kubetasker-controller.fullname" . }}-serving-cert
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

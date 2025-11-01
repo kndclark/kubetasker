@@ -77,7 +77,7 @@ spec:
       volumes:
       - name: webhook-certs
         secret:
-          secretName: webhook-server-cert
+          secretName: {{ include "kubetasker-controller.fullname" . }}-serving-cert
       {{- with .Values.volumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}

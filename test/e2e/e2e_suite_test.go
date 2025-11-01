@@ -86,6 +86,12 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(kindClusterName, frontendImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the frontend API image into Kind")
 
+	By("updating helm dependencies for the umbrella chart")
+	umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
+	cmd = exec.Command("helm", "dependency", "update", umbrellaChartPath)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to update helm dependencies")
+
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
 	// we check for its presence before execution.
@@ -109,3 +115,62 @@ var _ = AfterSuite(func() {
 		utils.UninstallCertManager()
 	}
 })
+
+// logDebugInfoOnFailure checks if the current Ginkgo spec has failed. If it has, it captures
+// a comprehensive snapshot of the test namespace's state, including pod logs, descriptions,
+// events, and webhook configurations. This is invaluable for debugging CI/CD failures.
+func logDebugInfoOnFailure(namespace string) {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	// logCommand is a helper to execute a command and print its output to the Ginkgo writer.
+	logCommand := func(description string, cmd *exec.Cmd) {
+		By(description)
+		output, err := utils.Run(cmd)
+		if err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Failed to run command for '%s': %v\n", description, err)
+			return
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter, "%s:\n%s\n\n", description, output)
+	}
+
+	// --- Capture Namespace State ---
+	logCommand("Fetching all pods in namespace",
+		exec.Command("kubectl", "get", "pods", "-n", namespace, "-o", "wide"))
+
+	logCommand("Fetching all events in namespace",
+		exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp"))
+
+	// --- Capture Controller Details ---
+	logCommand("Fetching controller-manager pod logs",
+		exec.Command("kubectl", "logs", "--selector=control-plane=controller-manager", "-n", namespace, "--tail=100"))
+
+	logCommand("Fetching controller-manager pod description",
+		exec.Command("kubectl", "describe", "pod", "--selector=control-plane=controller-manager", "-n", namespace))
+
+	// --- Capture Frontend Details ---
+	logCommand("Fetching frontend pod logs",
+		exec.Command("kubectl", "logs", "--selector=app.kubernetes.io/name=kubetasker-frontend", "-n", namespace, "--tail=100"))
+
+	logCommand("Fetching frontend pod description",
+		exec.Command("kubectl", "describe", "pod", "--selector=app.kubernetes.io/name=kubetasker-frontend", "-n", namespace))
+
+	// --- Capture Webhook Configurations ---
+	logCommand("Fetching MutatingWebhookConfiguration YAML",
+		exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+			"-l", "app.kubernetes.io/part-of=kubetasker", "-o", "yaml"))
+
+	logCommand("Fetching ValidatingWebhookConfiguration YAML",
+		exec.Command("kubectl", "get", "validatingwebhookconfigurations.admissionregistration.k8s.io",
+			"-l", "app.kubernetes.io/part-of=kubetasker", "-o", "yaml"))
+}
+
+// deletes the cluster-scoped webhook configurations (important step to prevent test pollution)
+func cleanupWebhookConfigurations(controllerFullName string) {
+	By(fmt.Sprintf("cleaning up webhook configurations for %s", controllerFullName))
+	mutatingWebhookName := controllerFullName + "-mutating-webhook-configuration"
+	validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+}
