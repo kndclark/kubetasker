@@ -20,6 +20,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 	const (
 		namespace           = "kubetasker-umbrella-e2e"
 		helmReleaseName     = "kubetasker-umbrella"
+		controllerFullName  = "kubetasker-umbrella-controller"
 		frontendServiceName = "kubetasker-umbrella-frontend"
 	)
 
@@ -42,7 +43,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 			"--set", fmt.Sprintf("kubetasker-controller.image.repository=%s", strings.Split(projectImage, ":")[0]),
 			"--set", fmt.Sprintf("kubetasker-controller.image.tag=%s", strings.Split(projectImage, ":")[1]),
 			"--set", "kubetasker-controller.image.pullPolicy=IfNotPresent",
-			"--set", "kubetasker-controller.fullnameOverride=kubetasker-umbrella-controller",
+			"--set", "kubetasker-controller.fullnameOverride="+controllerFullName,
 			"--set", "kubetasker-controller.webhookPrefix=umbrella-",
 			// Set frontend values
 			"--set", fmt.Sprintf("kubetasker-frontend.image.repository=%s", strings.Split(frontendImage, ":")[0]),
@@ -80,38 +81,20 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 		By("deleting the umbrella chart test namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
+
+		// Explicitly delete cluster-scoped webhook configurations to prevent test pollution.
+		By("cleaning up webhook configurations from umbrella test")
+		mutatingWebhookName := controllerFullName + "-mutating-webhook-configuration"
+		validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+
 	})
 
 	// After each test, if the test fails, collect and log debugging information
 	// like pod logs and events. This is crucial for diagnosing issues like the 500 error.
 	AfterEach(func() {
-		if !CurrentSpecReport().Failed() {
-			return
-		}
-
-		// Helper to run and log a command, writing output to GinkgoWriter
-		logCommand := func(description string, cmd *exec.Cmd) {
-			By(description)
-			output, err := utils.Run(cmd)
-			if err != nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to run command for '%s': %v\n", description, err)
-				return
-			}
-			_, _ = fmt.Fprintf(GinkgoWriter, "%s:\n%s\n", description, output)
-		}
-
-		// Fetch logs from the frontend pod
-		logCommand("Fetching frontend pod logs",
-			exec.Command("kubectl", "logs", "--selector=app.kubernetes.io/name=kubetasker-frontend", "-n", namespace, "--tail=100"))
-
-		// Fetch logs from the controller pod
-		logCommand("Fetching controller-manager pod logs",
-			exec.Command("kubectl", "logs", "--selector=control-plane=controller-manager", "-n", namespace, "--tail=100"))
-
-		// Fetch all events in the namespace to see if there were any issues
-		logCommand("Fetching Kubernetes events in the namespace",
-			exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp"))
-
+		logDebugInfoOnFailure(namespace)
 	})
 
 	It("should create a Ktask via the frontend and see the corresponding Job succeed", func() {
