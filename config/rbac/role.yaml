@@ -25,9 +25,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests
+  - ktasks
   verbs:
   - create
   - delete
@@ -37,15 +37,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests/finalizers
+  - ktasks/finalizers
   verbs:
   - update
 - apiGroups:
-  - custom.custom.io
+  - task.ktasker.com
   resources:
-  - jobrequests/status
+  - ktasks/status
   verbs:
   - get
   - patch

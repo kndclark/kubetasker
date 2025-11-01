@@ -1,0 +1,12 @@
+apiVersion: custom.custom.io/v1
+kind: Ktask
+metadata:
+  labels:
+    app.kubernetes.io/name: ktask
+    app.kubernetes.io/managed-by: kustomize
+  name: ktask-sample2
+spec:
+  image: busybox:1.28
+  command:
+    - "echo"
+    - "Hello from my second custom resource!"

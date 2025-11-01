@@ -22,17 +22,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
 )
 
 const (
-	certmanagerVersion = "v1.18.2"
-	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
-
-	defaultKindBinary  = "kind"
-	defaultKindCluster = "kind"
+	certManagerManifest = "test/e2e/vendor/cert-manager.yaml"
+	defaultKindBinary   = "kind"
+	defaultKindCluster  = "kind"
 )
 
 func warnError(err error) {
@@ -41,14 +40,12 @@ func warnError(err error) {
 
 // Run executes the provided command within this context
 func Run(cmd *exec.Cmd) (string, error) {
-	dir, _ := GetProjectDir()
-	cmd.Dir = dir
-
-	if err := os.Chdir(cmd.Dir); err != nil {
-		_, _ = fmt.Fprintf(GinkgoWriter, "chdir dir: %q\n", err)
+	if cmd.Dir == "" {
+		projectDir, err := GetProjectDir()
+		if err == nil {
+			cmd.Dir = projectDir
+		}
 	}
-
-	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
 	_, _ = fmt.Fprintf(GinkgoWriter, "running: %q\n", command)
 	output, err := cmd.CombinedOutput()
@@ -61,8 +58,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	cmd := exec.Command("kubectl", "delete", "-f", certManagerManifest)
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -83,8 +79,7 @@ func UninstallCertManager() {
 
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
+	cmd := exec.Command("kubectl", "apply", "-f", certManagerManifest)
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
@@ -134,12 +129,8 @@ func IsCertManagerCRDsInstalled() bool {
 }
 
 // LoadImageToKindClusterWithName loads a local docker image to the kind cluster
-func LoadImageToKindClusterWithName(name string) error {
-	cluster := defaultKindCluster
-	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
-		cluster = v
-	}
-	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
+func LoadImageToKindClusterWithName(clusterName, imageName string) error {
+	kindOptions := []string{"load", "docker-image", imageName, "--name", clusterName}
 	kindBinary := defaultKindBinary
 	if v, ok := os.LookupEnv("KIND"); ok {
 		kindBinary = v
@@ -153,7 +144,9 @@ func LoadImageToKindClusterWithName(name string) error {
 // according to line breakers, and ignores the empty elements in it.
 func GetNonEmptyLines(output string) []string {
 	var res []string
-	elements := strings.Split(output, "\n")
+	// Normalize line endings to handle both \n and \r\n
+	normalizedOutput := strings.ReplaceAll(output, "\r\n", "\n")
+	elements := strings.Split(normalizedOutput, "\n")
 	for _, element := range elements {
 		if element != "" {
 			res = append(res, element)
@@ -165,12 +158,23 @@ func GetNonEmptyLines(output string) []string {
 
 // GetProjectDir will return the directory where the project is
 func GetProjectDir() (string, error) {
-	wd, err := os.Getwd()
+	currentDir, err := os.Getwd()
 	if err != nil {
-		return wd, fmt.Errorf("failed to get current working directory: %w", err)
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
 	}
-	wd = strings.ReplaceAll(wd, "/test/e2e", "")
-	return wd, nil
+
+	for {
+		goModPath := filepath.Join(currentDir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return currentDir, nil
+		}
+
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			return "", fmt.Errorf("go.mod not found in any parent directory")
+		}
+		currentDir = parentDir
+	}
 }
 
 // UncommentCode searches for target in the file and remove the comment prefix

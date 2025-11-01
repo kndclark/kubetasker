@@ -6,12 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kndclark/kubetasker/test/utils"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	goldenFilePath           = "pre_helm_manifest.yaml"
+	kustomizeGoldenFile      = "kustomize_golden.yaml"
+	controllerHelmGoldenFile = "helm_golden.yaml"
+	frontendStaticGoldenFile = "frontend_static_golden.yaml"
+	frontendHelmGoldenFile   = "frontend_helm_golden.yaml"
 	expectedKustomizeVersion = "v5.3.0" // Define the expected version
+	expectedHelmVersion      = "v3."    // We can check for a major version
 )
 
 // TestPreHelmGoldenFile compares the current kustomize output against a "golden" file.
@@ -23,41 +28,99 @@ const (
 //
 // To update the golden file, run:
 // make golden-update
-func TestPreHelmGoldenFile(t *testing.T) {
+func TestGoldenFiles(t *testing.T) {
 	// Get the root of the project
 	t.Log("Finding project root...")
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := utils.GetProjectDir()
 	require.NoError(t, err, "Failed to get project root")
 	t.Logf("Project root found at: %s", projectRoot)
 
-	// Verify kustomize version
-	t.Log("Verifying kustomize version...")
-	versionCmd := exec.Command("kustomize", "version")
-	versionOutput, err := versionCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run 'kustomize version': %s", string(versionOutput))
-	// The output might be complex, e.g., "v5.3.0\n" or "{kustomize/v5.3.0 ...}"
-	require.Contains(t, string(versionOutput), expectedKustomizeVersion, "Incorrect kustomize version found. Expected %s.", expectedKustomizeVersion)
-	t.Logf("Kustomize version %s confirmed.", expectedKustomizeVersion)
+	t.Run("KustomizeOutput", func(t *testing.T) {
+		// Run kustomize build
+		t.Log("Running kustomize build...")
+		kustomizePath := filepath.Join(projectRoot, "config", "default")
+		cmd := exec.Command("kustomize", "build", kustomizePath)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "Failed to run kustomize build: %s", string(output))
 
-	// Run kustomize build
-	t.Log("Running kustomize build...")
-	kustomizePath := filepath.Join(projectRoot, "config", "default")
-	cmd := exec.Command("kustomize", "build", kustomizePath)
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run kustomize build: %s", string(output))
+		// Compare with the golden file
+		t.Log("Reading kustomize golden file...")
+		goldenFile := filepath.Join(projectRoot, "test", "golden", kustomizeGoldenFile) // Corrected variable name
+		expected, err := os.ReadFile(goldenFile)
+		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
 
-	// Compare with the golden file
-	t.Log("Reading golden file...")
-	goldenFile := filepath.Join(projectRoot, "test", "golden", goldenFilePath)
-	expected, err := os.ReadFile(goldenFile)
-	require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
+		t.Log("Comparing kustomize output with golden file...")
+		require.Equal(t, string(expected), string(output),
+			"Kustomize output does not match the golden file. Run 'make golden-update' to update it.")
+	})
 
-	t.Log("Comparing kustomize output with golden file...")
-	require.Equal(t, string(expected), string(output), "Kustomize output does not match the golden file. Run 'make golden-update' to update it.")
-}
+	t.Run("ControllerHelmOutput", func(t *testing.T) {
+		t.Log("Verifying helm version...")
+		versionCmd := exec.Command("helm", "version")
+		versionOutput, err := versionCmd.CombinedOutput()
+		require.NoError(t, err, "Failed to run 'helm version': %s", string(versionOutput))
+		require.Contains(t, string(versionOutput),
+			expectedHelmVersion,
+			"Incorrect helm version found. Expected %s.", expectedHelmVersion)
+		t.Logf("Helm version %s confirmed.", expectedHelmVersion)
 
-func getProjectRoot() (string, error) {
-	// A simple way to find the project root is by looking for the go.mod file.
-	// This makes the test runnable from any subdirectory.
-	return filepath.Abs("../..")
+		// Run helm template
+		releaseName := "kubetasker-controller-test"
+		t.Logf("Running helm template for controller with release name '%s'...", releaseName)
+		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
+		// We use --set to override values for a consistent test output
+		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
+			"image.repository=ktasker.com/kubetasker", "--set", "image.tag=v0.0.1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "Failed to run helm template: %s", string(output))
+
+		// Compare with the golden file
+		t.Log("Reading helm golden file...")
+		goldenFile := filepath.Join(projectRoot, "test", "golden", controllerHelmGoldenFile)
+		expected, err := os.ReadFile(goldenFile)
+		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
+
+		t.Log("Comparing helm output with golden file...")
+		require.Equal(t, string(expected), string(output),
+			"Helm output does not match the golden file. Run 'make golden-update' to update it.")
+	})
+
+	t.Run("FrontendStaticOutput", func(t *testing.T) {
+		// Read the static manifest
+		t.Log("Reading static frontend manifest...")
+		staticFile := filepath.Join(projectRoot, "kubetasker-frontend", "templates", "deployment.yaml")
+		current, err := os.ReadFile(staticFile)
+		require.NoError(t, err, "Failed to read static frontend manifest: %s", staticFile)
+
+		// Compare with the golden file
+		t.Log("Reading frontend static golden file...")
+		goldenFile := filepath.Join(projectRoot, "test", "golden", frontendStaticGoldenFile)
+		expected, err := os.ReadFile(goldenFile)
+		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
+
+		t.Log("Comparing static frontend manifest with golden file...")
+		require.Equal(t, string(expected), string(current),
+			"Static frontend manifest does not match the golden file. Run 'make golden-update' to update it.")
+	})
+
+	t.Run("FrontendHelmOutput", func(t *testing.T) {
+		// Run helm template for the frontend
+		releaseName := "kubetasker-frontend-test"
+		t.Logf("Running helm template for frontend with release name '%s'...", releaseName)
+		chartPath := filepath.Join(projectRoot, "kubetasker-frontend")
+		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
+			"image.repository=ktasker.com/kubetasker-frontend", "--set", "image.tag=v0.0.1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "Failed to run helm template for frontend: %s", string(output))
+
+		// Compare with the golden file
+		t.Log("Reading frontend helm golden file...")
+		goldenFile := filepath.Join(projectRoot, "test", "golden", frontendHelmGoldenFile)
+		expected, err := os.ReadFile(goldenFile)
+		require.NoError(t, err, "Failed to read golden file: %s", goldenFile)
+
+		t.Log("Comparing frontend helm output with golden file...")
+		require.Equal(t, string(expected), string(output),
+			"Frontend helm output does not match the golden file. Run 'make golden-update' to update it.")
+	})
 }

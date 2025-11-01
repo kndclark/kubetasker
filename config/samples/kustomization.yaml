@@ -1,4 +1,5 @@
 ## Append samples of your project ##
 resources:
-- custom_v1_jobrequest.yaml
+- custom_v1_ktask.yaml
+- custom_v2_ktask.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -10,19 +10,19 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-custom-custom-io-v1-jobrequest
+      path: /mutate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: mjobrequest.kb.io
+  name: mktask.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -36,17 +36,17 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-custom-custom-io-v1-jobrequest
+      path: /validate-task-ktasker-com-v1-ktask
   failurePolicy: Fail
-  name: vjobrequest.kb.io
+  name: vktask.kb.io
   rules:
   - apiGroups:
-    - custom.custom.io
+    - task.ktasker.com
     apiVersions:
     - v1
     operations:
     - CREATE
     - UPDATE
     resources:
-    - jobrequests
+    - ktasks
   sideEffects: None

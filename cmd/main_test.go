@@ -125,7 +125,7 @@ func TestRunFunctionErrorPaths(t *testing.T) {
 		}
 
 		// Directly test the controller setup logic from the run() function
-		err := (&controller.JobRequestReconciler{
+		err := (&controller.KtaskReconciler{
 			Client: mockMgr.GetClient(),
 			Scheme: mockMgr.GetScheme(),
 		}).SetupWithManager(mockMgr)

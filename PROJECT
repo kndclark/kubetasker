@@ -14,8 +14,8 @@ resources:
     namespaced: true
   controller: true
   domain: custom.io
-  group: custom
-  kind: JobRequest
+  group: task
+  kind: Ktask
   path: github.com/kndclark/kubetasker/api/v1
   version: v1
   webhooks:
