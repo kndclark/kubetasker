@@ -83,11 +83,7 @@ var _ = Describe("Umbrella Chart", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		// Explicitly delete cluster-scoped webhook configurations to prevent test pollution.
-		By("cleaning up webhook configurations from umbrella test")
-		mutatingWebhookName := controllerFullName + "-mutating-webhook-configuration"
-		validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+		cleanupWebhookConfigurations(controllerFullName)
 
 	})
 

@@ -165,3 +165,12 @@ func logDebugInfoOnFailure(namespace string) {
 		exec.Command("kubectl", "get", "validatingwebhookconfigurations.admissionregistration.k8s.io",
 			"-l", "app.kubernetes.io/part-of=kubetasker", "-o", "yaml"))
 }
+
+// deletes the cluster-scoped webhook configurations (important step to prevent test pollution)
+func cleanupWebhookConfigurations(controllerFullName string) {
+	By(fmt.Sprintf("cleaning up webhook configurations for %s", controllerFullName))
+	mutatingWebhookName := controllerFullName + "-mutating-webhook-configuration"
+	validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+}

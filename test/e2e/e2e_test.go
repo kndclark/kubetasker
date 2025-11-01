@@ -154,11 +154,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// Explicitly delete cluster-scoped webhook configurations to prevent test pollution.
 		// These are not removed by namespace deletion.
-		By("cleaning up webhook configurations")
-		mutatingWebhookName := controllerFullName + "-mutating-webhook-configuration"
-		validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+		cleanupWebhookConfigurations(controllerFullName)
 
 	})
 
