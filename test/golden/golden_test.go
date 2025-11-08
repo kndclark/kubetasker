@@ -1,6 +1,7 @@
 package golden
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,5 +123,44 @@ func TestGoldenFiles(t *testing.T) {
 		t.Log("Comparing frontend helm output with golden file...")
 		require.Equal(t, string(expected), string(output),
 			"Frontend helm output does not match the golden file. Run 'make golden-update' to update it.")
+	})
+
+	t.Run("UmbrellaChartOutput", func(t *testing.T) {
+		umbrellaTests := []struct {
+			env        string
+			goldenFile string
+		}{
+			{env: "dev", goldenFile: "umbrella_dev_golden.yaml"},
+			{env: "staging", goldenFile: "umbrella_staging_golden.yaml"},
+			{env: "prod", goldenFile: "umbrella_prod_golden.yaml"},
+		}
+
+		chartPath := filepath.Join(projectRoot, "kubetasker")
+
+		for _, tt := range umbrellaTests {
+			t.Run(tt.env, func(t *testing.T) {
+				releaseName := fmt.Sprintf("umbrella-%s", tt.env)
+				t.Logf("Running helm template for umbrella chart '%s' env with release name '%s'...", tt.env, releaseName)
+
+				valuesFile := filepath.Join(chartPath, fmt.Sprintf("values-%s.yaml", tt.env))
+				cmd := exec.Command("helm", "template", releaseName, chartPath,
+					"-f", valuesFile,
+					// We set static images to ensure consistent output, as the chart version might change.
+					"--set", "kubetasker-controller.image.repository=controller",
+					"--set", "kubetasker-controller.image.tag=v0.0.1",
+					"--set", "kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend",
+					"--set", "kubetasker-frontend.image.tag=v0.0.1",
+					// We must also disable the cert-manager parts, as they are cluster-dependent and not static.
+					"--set", "kubetasker-controller.certManager.enabled=false")
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "Failed to run helm template for umbrella chart: %s", string(output))
+
+				goldenFilePath := filepath.Join(projectRoot, "test", "golden", tt.goldenFile)
+				expected, err := os.ReadFile(goldenFilePath)
+				require.NoError(t, err, "Failed to read golden file: %s", goldenFilePath)
+
+				require.Equal(t, string(expected), string(output), "Umbrella chart output for env '%s' does not match the golden file. Run 'make golden-update' to update it.", tt.env)
+			})
+		}
 	})
 }
