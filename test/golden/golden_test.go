@@ -159,7 +159,9 @@ func TestGoldenFiles(t *testing.T) {
 				expected, err := os.ReadFile(goldenFilePath)
 				require.NoError(t, err, "Failed to read golden file: %s", goldenFilePath)
 
-				require.Equal(t, string(expected), string(output), "Umbrella chart output for env '%s' does not match the golden file. Run 'make golden-update' to update it.", tt.env)
+				errorMsg := "Umbrella chart output for env '%s' does not match the golden file. " +
+					"Run 'make golden-update' to update it."
+				require.Equal(t, string(expected), string(output), errorMsg, tt.env)
 			})
 		}
 	})
