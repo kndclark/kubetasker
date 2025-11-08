@@ -1,0 +1,44 @@
+#
+# Production Environment values for kubetasker
+#
+# helm install kubetasker-prod ./kubetasker -f ./kubetasker/values-prod.yaml
+#
+
+# Global settings for production
+global:
+  imagePullPolicy: IfNotPresent # Assumes immutable image tags to reduce registry load
+
+# Controller settings for production
+kubetasker-controller:
+  replicaCount: 2 # Leader election handles active/standby
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Frontend settings for production
+kubetasker-frontend:
+  replicaCount: 3 # More replicas for high availability and load balancing
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  # Example of adding pod anti-affinity for production
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - kubetasker-frontend
+          topologyKey: kubernetes.io/hostname
