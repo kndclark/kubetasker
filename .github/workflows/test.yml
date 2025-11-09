@@ -20,6 +20,7 @@ jobs:
       - name: Running Tests
         run: |
           go mod tidy
+          helm dependency build kubetasker
           make golden-update
           make test
   test-frontend:

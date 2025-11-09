@@ -88,6 +88,18 @@ golden-update: ## Update golden manifest files for tests.
 	cat kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
 	helm template kubetasker-frontend-test ./kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	@echo "--- Updating umbrella chart golden files..."
+	@for env in dev staging prod; do \
+		echo "--- Generating golden file for $$env environment..."; \
+		helm template umbrella-$$env ./kubetasker \
+			-f ./kubetasker/values-$$env.yaml \
+			--set kubetasker-controller.image.repository=controller \
+			--set kubetasker-controller.image.tag=v0.0.1 \
+			--set kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend \
+			--set kubetasker-frontend.image.tag=v0.0.1 \
+			--set kubetasker-controller.certManager.enabled=false \
+			> test/golden/umbrella_$$env\_golden.yaml; \
+	done
 
 .PHONY: golden-diff
 golden-diff: ## Show the differences between golden files for manual review.
