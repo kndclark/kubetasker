@@ -135,6 +135,13 @@ func logDebugInfoOnFailure(namespace string) {
 		_, _ = fmt.Fprintf(GinkgoWriter, "%s:\n%s\n\n", description, output)
 	}
 
+	// --- Capture Cluster-Wide State for broader context ---
+	logCommand("Fetching all pods in cluster",
+		exec.Command("kubectl", "get", "pods", "-A", "-o", "wide"))
+
+	logCommand("Searching for cluster-wide failure events",
+		exec.Command("bash", "-c", "kubectl get events -A | grep -i failed || true"))
+
 	// --- Capture Namespace State ---
 	logCommand("Fetching all pods in namespace",
 		exec.Command("kubectl", "get", "pods", "-n", namespace, "-o", "wide"))
