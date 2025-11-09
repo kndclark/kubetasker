@@ -79,110 +79,159 @@ def test_health_check(setup_app_and_mock_k8s_client):
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-
-def test_create_ktask(setup_app_and_mock_k8s_client):
-    """
-    Tests the POST /ktask endpoint, mocking the Kubernetes client call.
-    """
-    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    ktask_payload = {
-        "apiVersion": "task.ktasker.com/v1",
-        "kind": "Ktask",
-        "metadata": {"name": "test-job-1", "namespace": "test-ns"},
-        "spec": {"image": "busybox", "command": ["echo", "test"], 
-                 'restartPolicy': 'OnFailure'},
-    }
+    
+@pytest.mark.parametrize(
+    "input_payload, expected_body",
+    [
+        pytest.param(
+            { # Minimal payload
+                "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+                "metadata": {"name": "test-minimal"},
+                "spec": {"image": "busybox"},
+            },
+            { # Expected body sent to Kubernetes, with defaults applied
+                "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+                "metadata": {"name": "test-minimal", "namespace": "default"},
+                "spec": {"image": "busybox", "restartPolicy": "OnFailure"},
+            },
+            id="minimal_payload_with_defaults"
+        ),
+        pytest.param(
+            { # Full payload with optional fields
+                "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+                "metadata": {"name": "test-full", "namespace": "custom-ns"},
+                "spec": {"image": "nginx", "command": ["nginx"], "restartPolicy": "Never", "env": [{"name": "VAR", "value": "VAL"}]},
+            },
+            { # Expected body is identical to input
+                "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+                "metadata": {"name": "test-full", "namespace": "custom-ns"},
+                "spec": {"image": "nginx", "command": ["nginx"], "restartPolicy": "Never", "env": [{"name": "VAR", "value": "VAL"}]},
+            },
+            id="full_payload_with_env"
+        ),
+    ]
+)
+def test_create_ktask_success(setup_app_and_mock_k8s_client, input_payload, expected_body):
+    """Tests successful POST /ktask calls with various valid payloads."""
+    mock_k8s, client, _ = setup_app_and_mock_k8s_client
     # Mock the API response from the Kubernetes client
-    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = ktask_payload.copy()
+    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = expected_body
 
-    response = client.post("/ktask", json=ktask_payload)
+    response = client.post("/ktask", json=input_payload)
 
     # Assertions
     assert response.status_code == 200
     assert response.json()["message"] == "Ktask submitted"
-    assert response.json()["ktask"] == ktask_payload # The mock returns the payload
+    assert response.json()["ktask"] == expected_body
 
-    # Verify that the k8s client was called correctly
-    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_called_once_with(
-        group="task.ktasker.com",
-        version="v1",
-        namespace="test-ns",
-        plural="ktasks",
-        body=ktask_payload,
+    # Verify that the k8s client was called with the correctly processed body
+    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_called_once_with(
+        group="task.ktasker.com", version="v1",
+        namespace=expected_body["metadata"]["namespace"],
+        plural="ktasks", body=expected_body
     )
 
-def test_create_ktask_validation_error(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "payload_override, expected_error_loc, expected_error_msg",
+    [
+        pytest.param(
+            {"spec": {"command": ["echo", "test"]}}, # Missing 'image'
+            ("body", "spec", "image"),
+            "Field required",
+            id="missing_image",
+        ),
+        pytest.param(
+            {"apiVersion": "task.ktasker.com/v2"}, # Incorrect version
+            ("body", "apiVersion"),
+            'Value error, apiVersion must be "task.ktasker.com/v1"',
+            id="bad_api_version",
+        ),
+        pytest.param(
+            {"kind": "NotKtask"}, # Incorrect kind
+            ("body", "kind"),
+            'Value error, kind must be "Ktask"',
+            id="bad_kind",
+        ),
+        pytest.param(
+            {"spec": {"image": "busybox", "command": "not-a-list"}}, # Invalid type
+            ("body", "spec", "command"),
+            "Input should be a valid list",
+            id="bad_command_type",
+        ),
+    ],
+)
+def test_create_ktask_validation_errors(setup_app_and_mock_k8s_client, payload_override, expected_error_loc, expected_error_msg):
     """
-    Tests that the POST /ktask endpoint returns a 422 on validation failure.
+    Tests that POST /ktask returns a 422 on various Pydantic validation failures.
     """
     _, client, _ = setup_app_and_mock_k8s_client
 
-    # Payload missing the required 'image' field in spec
-    invalid_payload = {
+    base_payload = {
         "apiVersion": "task.ktasker.com/v1",
         "kind": "Ktask",
-        "metadata": {"name": "test-job-invalid"},
-        "spec": {"command": ["echo", "test"]},
+        "metadata": {"name": "test-job-invalid", "namespace": "default"},
+        "spec": {"image": "busybox"},
     }
+    # The override payload replaces keys in the base payload.
+    invalid_payload = {**base_payload, **payload_override}
 
     response = client.post("/ktask", json=invalid_payload)
 
     assert response.status_code == 422
     response_json = response.json()
     assert "detail" in response_json
-    assert response_json["detail"][0]["msg"] == "Field required"
-    assert response_json["detail"][0]["loc"] == ["body", "spec", "image"]
+    error_details = response_json["detail"][0]
+    assert error_details["loc"] == list(expected_error_loc)
+    assert expected_error_msg in error_details["msg"]
 
-def test_create_ktask_bad_api_version(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "api_status, api_reason, api_body, expected_text",
+    [
+        pytest.param(
+            409, "Conflict", {"message": "ktask already exists"}, "already exists",
+            id="conflict_409"
+        ),
+        pytest.param(
+            500, "Internal Server Error", {"message": "server has a problem"}, "server has a problem",
+            id="internal_error_500"
+        ),
+    ]
+)
+def test_create_ktask_api_errors(setup_app_and_mock_k8s_client, api_status, api_reason, api_body, expected_text):
     """
-    Tests that the custom apiVersion validator rejects incorrect versions.
+    Tests that POST /ktask correctly handles various API errors from Kubernetes.
     """
-    _, client, _ = setup_app_and_mock_k8s_client
-
-    invalid_payload = {
-        "apiVersion": "task.ktasker.com/v2", # Incorrect version
-        "kind": "Ktask",
-        "metadata": {"name": "test-job-invalid-api"},
-        "spec": {"image": "busybox"},
-    }
-
-    response = client.post("/ktask", json=invalid_payload)
-
-    assert response.status_code == 422
-    assert 'apiVersion must be' in response.text and 'task.ktasker.com/v1' in response.text
-
-def test_create_ktask_conflict(setup_app_and_mock_k8s_client):
-    """
-    Tests that POST /ktask returns a 409 on conflict (resource already exists).
-    """
-    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
+    mock_k8s, client, create_api_exception = setup_app_and_mock_k8s_client
     ktask_payload = {
         "apiVersion": "task.ktasker.com/v1",
         "kind": "Ktask",
-        "metadata": {"name": "test-job-conflict", "namespace": "test-ns"},
+        "metadata": {"name": "test-job-api-error", "namespace": "test-ns"},
         "spec": {"image": "busybox", "command": ["echo", "test"], 'restartPolicy': 'OnFailure'},
     }
     
-    # Use the helper to configure the mock exception
-    side_effect = create_api_exception(
-        status=409, reason="Conflict", 
-        body_dict={"message": "ktasks.task.ktasker.com \"test-job-conflict\" already exists"}
-    )
-    mock_k8s_client.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
+    side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict=api_body)
+    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
 
     response = client.post("/ktask", json=ktask_payload)
-    assert response.status_code == 409
-    assert "already exists" in response.text
+    assert response.status_code == api_status
+    assert expected_text in response.text
 
-def test_list_ktasks(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "query_params, expected_namespace",
+    [
+        pytest.param("?namespace=test-ns", "test-ns", id="explicit_namespace"),
+        pytest.param("", "default", id="default_namespace"),
+    ],
+)
+def test_list_ktasks(setup_app_and_mock_k8s_client, query_params, expected_namespace):
     """
-    Tests the GET /ktask endpoint, mocking the Kubernetes client call.
+    Tests GET /ktask with and without an explicit namespace parameter.
     """
     mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    mock_k8s_response = {"items": [{"metadata": {"name": "test-job-1"}}]} #.copy()
+    mock_k8s_response = {"items": [{"metadata": {"name": f"test-job-in-{expected_namespace}"}}]}
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
 
-    response = client.get("/ktask?namespace=test-ns")
+    response = client.get(f"/ktask{query_params}")
 
     assert response.status_code == 200
     assert response.json() == mock_k8s_response
@@ -191,116 +240,130 @@ def test_list_ktasks(setup_app_and_mock_k8s_client):
     mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.assert_called_once_with(
         group="task.ktasker.com",
         version="v1",
-        namespace="test-ns",
+        namespace=expected_namespace,
         plural="ktasks",
     )
 
-def test_list_ktasks_default_namespace(setup_app_and_mock_k8s_client):
-    """
-    Tests that GET /ktask uses the 'default' namespace if none is provided.
-    """
-    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    mock_k8s_response = {"items": [{"metadata": {"name": "test-job-default-ns"}}]}
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
-
-    # Note: No '?namespace=' query parameter is sent
-    response = client.get("/ktask")
-
-    assert response.status_code == 200
-    assert response.json() == mock_k8s_response
-
-    # Verify that the k8s client was called with the 'default' namespace
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.assert_called_once_with(
-        group="task.ktasker.com",
-        version="v1",
-        namespace="default",
-        plural="ktasks",
-    )
-
-def test_list_ktasks_api_error(setup_app_and_mock_k8s_client):
-    """
-    Tests that GET /ktask handles generic API errors from Kubernetes.
-    """
-    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
-
-    side_effect = create_api_exception(
-        status=500, reason="Internal Server Error", 
-        body_dict={"message": "the server has a problem"}
-    )
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = side_effect
+@pytest.mark.parametrize(
+    "api_status, api_reason, api_body, expected_text",
+    [
+        pytest.param(
+            500, "Internal Server Error", {"message": "the server has a problem"}, "the server has a problem",
+            id="internal_error_500"
+        ),
+        # We could add other error codes here, like 403 Forbidden
+        pytest.param(
+            403, "Forbidden", {"message": "user cannot list resources"}, "user cannot list resources",
+            id="forbidden_403"
+        ),
+    ]
+)
+def test_list_ktasks_api_errors(setup_app_and_mock_k8s_client, api_status, api_reason, api_body, expected_text):
+    """Tests that GET /ktask handles various API errors from Kubernetes."""
+    mock_k8s, client, create_api_exception = setup_app_and_mock_k8s_client
+    side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict=api_body)
+    mock_k8s.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = side_effect
 
     response = client.get("/ktask?namespace=test-ns")
-    assert response.status_code == 500
-    assert "the server has a problem" in response.text
+    assert response.status_code == api_status
+    assert expected_text in response.text
 
-def test_get_ktask(setup_app_and_mock_k8s_client):
-    """Tests the GET /ktask/{job_name} endpoint."""
-    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
-    mock_k8s_response = {"metadata": {"name": "test-job-1"}} #.copy()
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.return_value = mock_k8s_response.copy()
+@pytest.mark.parametrize(
+    "url, mock_method_name, mock_response, expected_call_kwargs",
+    [
+        pytest.param(
+            "/ktask?namespace=test-ns",
+            "list_namespaced_custom_object",
+            {"items": [{"metadata": {"name": "job-in-test-ns"}}]},
+            {"namespace": "test-ns"},
+            id="list_explicit_namespace"
+        ),
+        pytest.param(
+            "/ktask",
+            "list_namespaced_custom_object",
+            {"items": [{"metadata": {"name": "job-in-default-ns"}}]},
+            {"namespace": "default"},
+            id="list_default_namespace"
+        ),
+        pytest.param(
+            "/ktask/my-specific-job?namespace=test-ns",
+            "get_namespaced_custom_object",
+            {"metadata": {"name": "my-specific-job"}},
+            {"name": "my-specific-job", "namespace": "test-ns"},
+            id="get_single_job"
+        ),
+    ]
+)
+def test_get_and_list_ktasks_success(setup_app_and_mock_k8s_client, url, mock_method_name, mock_response, expected_call_kwargs):
+    """Tests successful GET requests for listing and retrieving single Ktasks."""
+    mock_k8s, client, _ = setup_app_and_mock_k8s_client
+    mock_method = getattr(mock_k8s.client.CustomObjectsApi.return_value, mock_method_name)
+    mock_method.return_value = mock_response
 
-    response = client.get("/ktask/test-job-1?namespace=test-ns")
+    response = client.get(url)
 
     assert response.status_code == 200
-    assert response.json() == mock_k8s_response
+    assert response.json() == mock_response
 
-    # Verify that the k8s client was called correctly.
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.assert_called_once_with(
-        group="task.ktasker.com",
-        version="v1",
-        name="test-job-1",
-        namespace="test-ns",
-        plural="ktasks",
-    )
+    # Verify the correct Kubernetes client method was called with the right arguments
+    base_kwargs = {"group": "task.ktasker.com", "version": "v1", "plural": "ktasks"}
+    mock_method.assert_called_once_with(**base_kwargs, **expected_call_kwargs)
 
-def test_get_ktask_not_found(setup_app_and_mock_k8s_client):
-    """Tests the GET /ktask/{job_name} endpoint when the resource is not found."""
-    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
-
-    side_effect = create_api_exception(
-        status=404, 
-        reason="Not Found", 
-        body_dict={"message": "not found"}
-    )
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
-
-    response = client.get("/ktask/not-found-job?namespace=test-ns")
-
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"]
-
-def test_get_ktask_api_error(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "api_status, api_reason, api_body, expected_text",
+    [
+        pytest.param(
+            404, "Not Found", {"message": "not found"}, "not found",
+            id="not_found_404"
+        ),
+        pytest.param(
+            503, "Service Unavailable", {"message": "etcd is down"}, "etcd is down",
+            id="service_unavailable_503"
+        ),
+    ]
+)
+def test_get_ktask_api_errors(setup_app_and_mock_k8s_client, api_status, api_reason, api_body, expected_text):
     """
-    Tests that GET /ktask/{job_name} handles generic API errors.
+    Tests that GET /ktask/{job_name} handles various API errors from Kubernetes.
     """
-    mock_k8s_client, client, create_api_exception = setup_app_and_mock_k8s_client
+    mock_k8s, client, create_api_exception = setup_app_and_mock_k8s_client
 
-    side_effect = create_api_exception(
-        status=503, 
-        reason="Service Unavailable", 
-        body_dict={"message": "etcd is down"}
-    )
-    mock_k8s_client.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
+    side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict=api_body)
+    mock_k8s.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
 
     response = client.get("/ktask/some-job?namespace=test-ns")
-    assert response.status_code == 503
-    assert "etcd is down" in response.text
+    assert response.status_code == api_status
+    assert expected_text in response.text
 
-def test_api_unavailable_when_k8s_client_fails(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "method, url",
+    [
+        ("POST", "/ktask"),
+        ("GET", "/ktask?namespace=test-ns"),
+        ("GET", "/ktask/some-job?namespace=test-ns"),
+    ],
+    ids=["create_ktask", "list_ktasks", "get_ktask"]
+)
+def test_api_unavailable_when_k8s_client_fails(method, url):
     """
     Tests that endpoints return 503 if the Kubernetes client could not be initialized.
+    This test runs without the standard fixture to control dependency overrides manually.
     """
     from listener import app, get_k8s_api
 
     # Override the dependency to simulate a failure to get the k8s client
     app.dependency_overrides[get_k8s_api] = lambda: None
-    client = TestClient(app)
+    
+    with TestClient(app) as client:
+        if method == "POST":
+            # POST requires a valid body, even if the endpoint logic fails early
+            valid_payload = {"apiVersion": "task.ktasker.com/v1", "kind": "Ktask", "metadata": {"name": "job"}, "spec": {"image": "img"}}
+            response = client.post(url, json=valid_payload)
+        else:
+            response = client.get(url)
 
-    # Test one of the endpoints
-    response = client.get("/ktask?namespace=test-ns")
-
-    assert response.status_code == 503
-    assert "Service is unavailable" in response.json()["detail"]
+        assert response.status_code == 503
+        assert "Service is unavailable" in response.json()["detail"]
 
     # Clear the override for other tests
     app.dependency_overrides.clear()
