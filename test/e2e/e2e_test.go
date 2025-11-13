@@ -66,7 +66,8 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace for metrics")
 
 		By("deploying the controller-manager")
-		cmd = exec.Command("helm", "install", helmReleaseName, "./kubetasker-controller",
+		controllerChartPath := filepath.Join(chartsRoot, "kubetasker-controller")
+		cmd = exec.Command("helm", "install", helmReleaseName, controllerChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(projectImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(projectImage, ":")[1]),
@@ -78,7 +79,7 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
 		By("deploying the frontend API service")
-		frontendChartPath := filepath.Join(projectRootDir, "kubetasker-frontend")
+		frontendChartPath := filepath.Join(chartsRoot, "kubetasker-frontend")
 		cmd = exec.Command("helm", "install", frontendDeploymentName, frontendChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),

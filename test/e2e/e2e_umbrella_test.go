@@ -86,7 +86,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By(fmt.Sprintf("deploying KubeTasker with the '%s' values file", tt.environment))
-				umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
+				umbrellaChartPath := filepath.Join(chartsRoot, "kubetasker")
 				valuesFilePath := filepath.Join(umbrellaChartPath, fmt.Sprintf("values-%s.yaml", tt.environment))
 
 				helmArgs := []string{

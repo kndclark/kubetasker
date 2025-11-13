@@ -48,6 +48,7 @@ var (
 	// frontendImage is the name of the frontend API service image.
 	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
 	projectRootDir string
+	chartsRoot     string
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -64,6 +65,7 @@ var _ = BeforeSuite(func() {
 	var err error
 	projectRootDir, err = utils.GetProjectDir()
 	Expect(err).NotTo(HaveOccurred(), "Failed to get project root dir")
+	chartsRoot = filepath.Join(projectRootDir, "helm")
 
 	By("building the manager(Operator) image")
 	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
@@ -71,7 +73,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
 	By("building the frontend API image")
-	frontendDir := filepath.Join(projectRootDir, "kubetasker-frontend")
+	frontendDir := filepath.Join(chartsRoot, "kubetasker-frontend")
 	dockerfilePath := filepath.Join(frontendDir, "Dockerfile")
 	cmd = exec.Command("docker", "build", "-t", frontendImage, "-f", dockerfilePath, frontendDir)
 	_, err = utils.Run(cmd)
@@ -87,7 +89,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the frontend API image into Kind")
 
 	By("updating helm dependencies for the umbrella chart")
-	umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
+	umbrellaChartPath := filepath.Join(chartsRoot, "kubetasker")
 	cmd = exec.Command("helm", "dependency", "update", umbrellaChartPath)
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to update helm dependencies")
