@@ -4,7 +4,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -86,7 +85,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By(fmt.Sprintf("deploying KubeTasker with the '%s' values file", tt.environment))
-				umbrellaChartPath := filepath.Join(projectRootDir, "kubetasker")
+				umbrellaChartPath := filepath.Join(chartsRoot, "kubetasker")
 				valuesFilePath := filepath.Join(umbrellaChartPath, fmt.Sprintf("values-%s.yaml", tt.environment))
 
 				helmArgs := []string{
@@ -101,6 +100,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					// Override names for test isolation
 					"--set", "kubetasker-controller.fullnameOverride=" + tt.controllerFullName,
 					"--set", "kubetasker-frontend.fullnameOverride=" + tt.frontendServiceName,
+					"--set", "kubetasker-controller.webhook.service.namespace=" + tt.namespace,
 					"--set", "kubetasker-controller.webhookPrefix=umbrella-" + tt.environment + "-",
 					"--timeout", "90s", // Add timeout to the helm command itself
 					"--wait",
@@ -208,54 +208,3 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 		})
 	}
 })
-
-// verifyReplicaCount checks if the number of ready pods for a given label selector matches the expected count.
-func verifyReplicaCount(namespace, labelSelector string, expectedCount int) {
-	// In CI, we override the replica count to 1, so we adjust our expectation.
-	if os.Getenv("CI") == "true" {
-		expectedCount = 1
-	}
-
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "-l", labelSelector, "-o", "json")
-		output, err := utils.Run(cmd)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		var podList struct {
-			Items []struct {
-				Status struct {
-					Phase string `json:"phase"`
-				} `json:"status"`
-			} `json:"items"`
-		}
-		g.Expect(json.Unmarshal([]byte(output), &podList)).To(Succeed())
-
-		runningPods := 0
-		for _, pod := range podList.Items {
-			if pod.Status.Phase == "Running" {
-				runningPods++
-			}
-		}
-		g.Expect(runningPods).To(Equal(expectedCount), "Incorrect number of running pods found for selector "+labelSelector)
-	}).Should(Succeed())
-}
-
-// verifyResources checks if the resource requests and limits for a pod's first container match the expected values.
-func verifyResources(namespace, labelSelector string, expected map[string]string) {
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "-l", labelSelector, "-o", "jsonpath={.items[0].spec.containers[0].resources}")
-		output, err := utils.Run(cmd)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		var resources struct {
-			Limits   map[string]string `json:"limits"`
-			Requests map[string]string `json:"requests"`
-		}
-		g.Expect(json.Unmarshal([]byte(output), &resources)).To(Succeed())
-
-		g.Expect(resources.Requests["cpu"]).To(Equal(expected["requests.cpu"]))
-		g.Expect(resources.Requests["memory"]).To(Equal(expected["requests.memory"]))
-		g.Expect(resources.Limits["cpu"]).To(Equal(expected["limits.cpu"]))
-		g.Expect(resources.Limits["memory"]).To(Equal(expected["limits.memory"]))
-	}).Should(Succeed())
-}

@@ -28,6 +28,9 @@ PYVENV=.kubetasker_pyenv
 FRONTEND=kubetasker-frontend
 FRONTEND_PORT=8000
 
+# Path to the Helm charts directory
+CHART_ROOT ?= helm
+
 .PHONY: all
 all: build
 
@@ -79,26 +82,31 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: golden-update
-golden-update: ## Update golden manifest files for tests.
+golden-update: kustomize-manifests ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
-	helm template kubetasker-controller-test ./kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
+	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
 	@echo "--- Updating frontend static golden file..."
-	cat kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
+	cat $(CHART_ROOT)/kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
-	helm template kubetasker-frontend-test ./kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
 	@echo "--- Updating umbrella chart golden files..."
 	@for env in dev staging prod; do \
 		echo "--- Generating golden file for $$env environment..."; \
-		helm template umbrella-$$env ./kubetasker \
-			-f ./kubetasker/values-$$env.yaml \
+		helm template umbrella-$$env $(CHART_ROOT)/kubetasker \
+			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
 			--set kubetasker-controller.image.repository=controller \
 			--set kubetasker-controller.image.tag=v0.0.1 \
 			--set kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend \
 			--set kubetasker-frontend.image.tag=v0.0.1 \
 			--set kubetasker-controller.certManager.enabled=false \
 			> test/golden/umbrella_$$env\_golden.yaml; \
+	done
+	@echo "--- Updating kustomize overlay golden files..."
+	@for env in dev staging prod; do \
+		echo "--- Generating kustomize golden file for $$env environment..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$$env > test/golden/kustomize_$$env\_golden.yaml; \
 	done
 
 .PHONY: golden-diff
@@ -188,21 +196,21 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: docker-build-frontend-dev
 docker-build-frontend-dev: ## build frontend API container standalone (outside kubernetes, typically for dev)
-	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
+	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND) && \
 	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend API container image.
-	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(FRONTEND)/Dockerfile ./$(FRONTEND)
+	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND)
 
 .PHONY: load-docker-frontend
 load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
 	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER)
 
 .PHONY: deploy-frontend
-deploy-frontend: docker-build-frontend load-docker-frontend ## Deploy or update the frontend service in the current cluster.
-	@echo "--- Applying frontend deployment manifest..."
-	$(KUBECTL) apply -f $(FRONTEND)/deployment.yaml
+deploy-frontend: ## Deploy or update the frontend service in the current cluster using Helm.
+	@echo "--- Deploying frontend via Helm..."
+	helm upgrade --install $(FRONTEND) $(CHART_ROOT)/$(FRONTEND) --set image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) --set image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2)
 	@echo "--- Restarting frontend deployment to apply image changes..."
 	$(KUBECTL) rollout restart deployment $(FRONTEND)
 
@@ -304,9 +312,9 @@ deploy-umbrella: docker-build docker-build-frontend install-cert-manager ## Depl
 	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
 	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
 	@echo "--- Updating Helm dependencies for umbrella chart..."
-	helm dependency update ./kubetasker
+	helm dependency update $(CHART_ROOT)/kubetasker
 	@echo "--- Deploying umbrella chart to namespace '$(UMBRELLA_NAMESPACE)' with release name '$(UMBRELLA_RELEASE_NAME)'..."
-	helm upgrade --install $(UMBRELLA_RELEASE_NAME) ./kubetasker \
+	helm upgrade --install $(UMBRELLA_RELEASE_NAME) $(CHART_ROOT)/kubetasker \
 		--namespace $(UMBRELLA_NAMESPACE) --create-namespace \
 		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
@@ -326,6 +334,41 @@ undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
 	-helm uninstall cert-manager --namespace cert-manager
 	@echo "--- Deleting cert-manager namespace..."
 	-$(KUBECTL) delete namespace cert-manager --ignore-not-found
+
+# Variables for Kustomize deployment
+ENVS ?= dev staging prod
+ENV ?= dev
+
+.PHONY: kustomize-manifests
+kustomize-manifests: ## Generate the base manifests required for Kustomize overlays.
+	@echo "--- Generating Kustomize base manifests..."
+	@echo "--- Creating kustomize/base directory..."
+	@mkdir -p kustomize/base
+	@echo "--- Generating kustomize/base/all.yaml from Helm chart using values from environment: $(ENV)..."
+	@helm template kubetasker-base $(CHART_ROOT)/kubetasker \
+		--namespace $(ENV) \
+		-f $(CHART_ROOT)/kubetasker/values-$(ENV).yaml \
+		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
+		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--set global.imagePullPolicy=IfNotPresent \
+		--set kubetasker-controller.webhook.service.namespace=$(ENV) \
+		> kustomize/base/all.yaml
+
+	@echo "--- Copying authoritative CRD to kustomize/base/crd.yaml..."
+	@cp config/crd/bases/task.ktasker.com_ktasks.yaml kustomize/base/crd.yaml
+	@echo "--- Kustomize base manifests generated successfully."
+
+.PHONY: deploy-kustomize
+deploy-kustomize: kustomize-manifests kustomize install-cert-manager ## Deploy a specific environment using Kustomize (e.g., make deploy-kustomize ENV=prod).
+	@echo "--- Deploying environment '$(ENV)' using Kustomize..."
+	$(KUBECTL) apply -k kustomize/overlays/$(ENV)
+
+.PHONY: undeploy-kustomize
+undeploy-kustomize: kustomize-manifests kustomize ## Undeploy a specific environment using Kustomize (e.g., make undeploy-kustomize ENV=prod).
+	@echo "--- Undeploying environment '$(ENV)' using Kustomize..."
+	$(KUBECTL) delete --ignore-not-found=true -k kustomize/overlays/$(ENV)
 
 ##@ Dependencies
 

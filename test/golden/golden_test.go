@@ -35,6 +35,7 @@ func TestGoldenFiles(t *testing.T) {
 	projectRoot, err := utils.GetProjectDir()
 	require.NoError(t, err, "Failed to get project root")
 	t.Logf("Project root found at: %s", projectRoot)
+	chartsRoot := filepath.Join(projectRoot, "helm")
 
 	t.Run("KustomizeOutput", func(t *testing.T) {
 		// Run kustomize build
@@ -68,7 +69,7 @@ func TestGoldenFiles(t *testing.T) {
 		// Run helm template
 		releaseName := "kubetasker-controller-test"
 		t.Logf("Running helm template for controller with release name '%s'...", releaseName)
-		chartPath := filepath.Join(projectRoot, "kubetasker-controller")
+		chartPath := filepath.Join(chartsRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
 		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
 			"image.repository=ktasker.com/kubetasker", "--set", "image.tag=v0.0.1")
@@ -89,7 +90,7 @@ func TestGoldenFiles(t *testing.T) {
 	t.Run("FrontendStaticOutput", func(t *testing.T) {
 		// Read the static manifest
 		t.Log("Reading static frontend manifest...")
-		staticFile := filepath.Join(projectRoot, "kubetasker-frontend", "templates", "deployment.yaml")
+		staticFile := filepath.Join(chartsRoot, "kubetasker-frontend", "templates", "deployment.yaml")
 		current, err := os.ReadFile(staticFile)
 		require.NoError(t, err, "Failed to read static frontend manifest: %s", staticFile)
 
@@ -108,7 +109,7 @@ func TestGoldenFiles(t *testing.T) {
 		// Run helm template for the frontend
 		releaseName := "kubetasker-frontend-test"
 		t.Logf("Running helm template for frontend with release name '%s'...", releaseName)
-		chartPath := filepath.Join(projectRoot, "kubetasker-frontend")
+		chartPath := filepath.Join(chartsRoot, "kubetasker-frontend")
 		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
 			"image.repository=ktasker.com/kubetasker-frontend", "--set", "image.tag=v0.0.1")
 		output, err := cmd.CombinedOutput()
@@ -135,7 +136,7 @@ func TestGoldenFiles(t *testing.T) {
 			{env: "prod", goldenFile: "umbrella_prod_golden.yaml"},
 		}
 
-		chartPath := filepath.Join(projectRoot, "kubetasker")
+		chartPath := filepath.Join(chartsRoot, "kubetasker")
 
 		for _, tt := range umbrellaTests {
 			t.Run(tt.env, func(t *testing.T) {
@@ -162,6 +163,33 @@ func TestGoldenFiles(t *testing.T) {
 				errorMsg := "Umbrella chart output for env '%s' does not match the golden file. " +
 					"Run 'make golden-update' to update it."
 				require.Equal(t, string(expected), string(output), errorMsg, tt.env)
+			})
+		}
+	})
+
+	t.Run("KustomizeOverlayOutput", func(t *testing.T) {
+		kustomizeOverlayTests := []struct {
+			env        string
+			goldenFile string
+		}{
+			{env: "dev", goldenFile: "kustomize_dev_golden.yaml"},
+			{env: "staging", goldenFile: "kustomize_staging_golden.yaml"},
+			{env: "prod", goldenFile: "kustomize_prod_golden.yaml"},
+		}
+
+		for _, tt := range kustomizeOverlayTests {
+			t.Run(tt.env, func(t *testing.T) {
+				t.Logf("Running kustomize build for overlay '%s'...", tt.env)
+				overlayPath := filepath.Join(projectRoot, "kustomize", "overlays", tt.env)
+				cmd := exec.Command("kustomize", "build", "--load-restrictor", "LoadRestrictionsNone", overlayPath)
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "Failed to run kustomize build for overlay %s: %s", tt.env, string(output))
+
+				goldenFilePath := filepath.Join(projectRoot, "test", "golden", tt.goldenFile)
+				expected, err := os.ReadFile(goldenFilePath)
+				require.NoError(t, err, "Failed to read golden file: %s", goldenFilePath)
+
+				require.Equal(t, string(expected), string(output), "Kustomize overlay output for env '%s' does not match the golden file. Run 'make golden-update' to update it.", tt.env)
 			})
 		}
 	})
