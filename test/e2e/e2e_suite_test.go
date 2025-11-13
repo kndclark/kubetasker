@@ -20,10 +20,12 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -116,6 +118,12 @@ var _ = AfterSuite(func() {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
 		utils.UninstallCertManager()
 	}
+
+	By("cleaning up test-generated files")
+	kustomizeBaseDir := filepath.Join(projectRootDir, "kustomize", "base")
+	if _, err := os.Stat(kustomizeBaseDir); !os.IsNotExist(err) {
+		os.RemoveAll(kustomizeBaseDir)
+	}
 })
 
 // logDebugInfoOnFailure checks if the current Ginkgo spec has failed. If it has, it captures
@@ -182,4 +190,82 @@ func cleanupWebhookConfigurations(controllerFullName string) {
 	validatingWebhookName := controllerFullName + "-validating-webhook-configuration"
 	_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfigurations.admissionregistration.k8s.io", mutatingWebhookName, "--ignore-not-found"))
 	_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfigurations.admissionregistration.k8s.io", validatingWebhookName, "--ignore-not-found"))
+}
+
+// verifyReplicaCount checks if the number of ready pods for a given label selector matches the expected count.
+func verifyReplicaCount(namespace, labelSelector string, expectedCount int) {
+	// In CI, we may override the replica count to 1, so we adjust our expectation.
+	if os.Getenv("CI") == "true" {
+		expectedCount = 1
+	}
+
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "-l", labelSelector, "-o", "json")
+		output, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var podList struct {
+			Items []struct {
+				Status struct {
+					Phase string `json:"phase"`
+				} `json:"status"`
+			} `json:"items"`
+		}
+		g.Expect(json.Unmarshal([]byte(output), &podList)).To(Succeed())
+
+		runningPods := 0
+		for _, pod := range podList.Items {
+			if pod.Status.Phase == "Running" {
+				runningPods++
+			}
+		}
+		g.Expect(runningPods).To(Equal(expectedCount), "Incorrect number of running pods found for selector "+labelSelector)
+	}).Should(Succeed())
+}
+
+// verifyResources checks if the resource requests and limits for a pod's first container match the expected values.
+func verifyResources(namespace, labelSelector string, expected map[string]string) {
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "-l", labelSelector, "-o", "jsonpath={.items[0].spec.containers[0].resources}")
+		output, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var resources struct {
+			Limits   map[string]string `json:"limits"`
+			Requests map[string]string `json:"requests"`
+		}
+		g.Expect(json.Unmarshal([]byte(output), &resources)).To(Succeed())
+
+		g.Expect(resources.Requests["cpu"]).To(Equal(expected["requests.cpu"]))
+		g.Expect(resources.Requests["memory"]).To(Equal(expected["requests.memory"]))
+		g.Expect(resources.Limits["cpu"]).To(Equal(expected["limits.cpu"]))
+		g.Expect(resources.Limits["memory"]).To(Equal(expected["limits.memory"]))
+	}).Should(Succeed())
+}
+
+// runInCurlPod creates a temporary pod with a curl image, waits for it to be ready,
+// executes a given shell command inside it, and then cleans up the pod.
+// It returns the stdout of the executed command or an error. This implementation
+// uses an ephemeral pod (`--attach` and `--rm`) for efficiency, as it creates,
+// runs, and deletes the pod in a single command.
+func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
+	cmd := exec.Command("kubectl", "run", podName,
+		"--image=curlimages/curl:latest",
+		"--namespace", namespace,
+		"--restart=Never",
+		"--rm",     // Automatically remove the pod when it exits.
+		"--attach", // Attach to the pod's stdio.
+		"--",       // End of kubectl options, start of command to run in the pod.
+		"/bin/sh", "-c", shellCmd)
+
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return output, fmt.Errorf("failed to run ephemeral curl pod %s: %w. Output: %s", podName, err, output)
+	}
+
+	// The output of `kubectl run --rm --attach` can include the pod deletion message.
+	// We only care about the actual command output, which comes first.
+	// Example: "200pod \"curl-health-check\" deleted"
+	// We want to extract "200".
+	return strings.Split(output, "pod ")[0], nil
 }

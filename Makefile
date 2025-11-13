@@ -343,22 +343,22 @@ ENV ?= dev
 kustomize-manifests: ## Generate manifests for Kustomize overlays from the umbrella Helm chart.
 	@echo "--- Generating Kustomize manifests for environments: $(ENVS)"
 	@for env in $(ENVS); do \
-		echo "--- Generating manifests for $$env environment..."; \
-		mkdir -p build/$$env; \
+		echo "--- Generating base manifests for Kustomize..."; \
+		mkdir -p kustomize/base; \
 		helm template kubetasker $(CHART_ROOT)/kubetasker \
 			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
-			> build/$$env/all.yaml; \
+			> kustomize/base/all.yaml; \
 	done
 
 .PHONY: deploy-kustomize
 deploy-kustomize: kustomize-manifests kustomize install-cert-manager ## Deploy a specific environment using Kustomize (e.g., make deploy-kustomize ENV=prod).
 	@echo "--- Deploying environment '$(ENV)' using Kustomize..."
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$(ENV) | $(KUBECTL) apply -f -
+	$(KUBECTL) apply -k kustomize/overlays/$(ENV)
 
 .PHONY: undeploy-kustomize
 undeploy-kustomize: kustomize-manifests kustomize ## Undeploy a specific environment using Kustomize (e.g., make undeploy-kustomize ENV=prod).
 	@echo "--- Undeploying environment '$(ENV)' using Kustomize..."
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$(ENV) | $(KUBECTL) delete --ignore-not-found=true -f -
+	$(KUBECTL) delete --ignore-not-found=true -k kustomize/overlays/$(ENV)
 
 ##@ Dependencies
 
