@@ -82,7 +82,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: golden-update
-golden-update: ## Update golden manifest files for tests.
+golden-update: kustomize-manifests ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
@@ -102,6 +102,11 @@ golden-update: ## Update golden manifest files for tests.
 			--set kubetasker-frontend.image.tag=v0.0.1 \
 			--set kubetasker-controller.certManager.enabled=false \
 			> test/golden/umbrella_$$env\_golden.yaml; \
+	done
+	@echo "--- Updating kustomize overlay golden files..."
+	@for env in dev staging prod; do \
+		echo "--- Generating kustomize golden file for $$env environment..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$$env > test/golden/kustomize_$$env\_golden.yaml; \
 	done
 
 .PHONY: golden-diff
@@ -329,6 +334,31 @@ undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
 	-helm uninstall cert-manager --namespace cert-manager
 	@echo "--- Deleting cert-manager namespace..."
 	-$(KUBECTL) delete namespace cert-manager --ignore-not-found
+
+# Variables for Kustomize deployment
+ENVS ?= dev staging prod
+ENV ?= dev
+
+.PHONY: kustomize-manifests
+kustomize-manifests: ## Generate manifests for Kustomize overlays from the umbrella Helm chart.
+	@echo "--- Generating Kustomize manifests for environments: $(ENVS)"
+	@for env in $(ENVS); do \
+		echo "--- Generating manifests for $$env environment..."; \
+		mkdir -p build/$$env; \
+		helm template kubetasker $(CHART_ROOT)/kubetasker \
+			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
+			> build/$$env/all.yaml; \
+	done
+
+.PHONY: deploy-kustomize
+deploy-kustomize: kustomize-manifests kustomize install-cert-manager ## Deploy a specific environment using Kustomize (e.g., make deploy-kustomize ENV=prod).
+	@echo "--- Deploying environment '$(ENV)' using Kustomize..."
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$(ENV) | $(KUBECTL) apply -f -
+
+.PHONY: undeploy-kustomize
+undeploy-kustomize: kustomize-manifests kustomize ## Undeploy a specific environment using Kustomize (e.g., make undeploy-kustomize ENV=prod).
+	@echo "--- Undeploying environment '$(ENV)' using Kustomize..."
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone kustomize/overlays/$(ENV) | $(KUBECTL) delete --ignore-not-found=true -f -
 
 ##@ Dependencies
 

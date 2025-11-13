@@ -166,4 +166,31 @@ func TestGoldenFiles(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("KustomizeOverlayOutput", func(t *testing.T) {
+		kustomizeOverlayTests := []struct {
+			env        string
+			goldenFile string
+		}{
+			{env: "dev", goldenFile: "kustomize_dev_golden.yaml"},
+			{env: "staging", goldenFile: "kustomize_staging_golden.yaml"},
+			{env: "prod", goldenFile: "kustomize_prod_golden.yaml"},
+		}
+
+		for _, tt := range kustomizeOverlayTests {
+			t.Run(tt.env, func(t *testing.T) {
+				t.Logf("Running kustomize build for overlay '%s'...", tt.env)
+				overlayPath := filepath.Join(projectRoot, "kustomize", "overlays", tt.env)
+				cmd := exec.Command("kustomize", "build", "--load-restrictor", "LoadRestrictionsNone", overlayPath)
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "Failed to run kustomize build for overlay %s: %s", tt.env, string(output))
+
+				goldenFilePath := filepath.Join(projectRoot, "test", "golden", tt.goldenFile)
+				expected, err := os.ReadFile(goldenFilePath)
+				require.NoError(t, err, "Failed to read golden file: %s", goldenFilePath)
+
+				require.Equal(t, string(expected), string(output), "Kustomize overlay output for env '%s' does not match the golden file. Run 'make golden-update' to update it.", tt.env)
+			})
+		}
+	})
 }

@@ -74,6 +74,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "webhookPrefix=single-",
 			"--set", "fullnameOverride="+controllerFullName,
+			"--set", "webhook.service.namespace="+namespace,
 			"--wait")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")

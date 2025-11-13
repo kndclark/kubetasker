@@ -101,6 +101,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					// Override names for test isolation
 					"--set", "kubetasker-controller.fullnameOverride=" + tt.controllerFullName,
 					"--set", "kubetasker-frontend.fullnameOverride=" + tt.frontendServiceName,
+					"--set", "kubetasker-controller.webhook.service.namespace=" + tt.namespace,
 					"--set", "kubetasker-controller.webhookPrefix=umbrella-" + tt.environment + "-",
 					"--timeout", "90s", // Add timeout to the helm command itself
 					"--wait",
