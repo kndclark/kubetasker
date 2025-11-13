@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - dev
-      - standardize_deployments
   push:
     branches:
       - main
@@ -48,4 +47,4 @@ jobs:
       - name: Run Python tests
         run: |
           source .kubetasker_pyenv/bin/activate
-          pytest kubetasker-frontend/ -vvrA
+          pytest -vvrA

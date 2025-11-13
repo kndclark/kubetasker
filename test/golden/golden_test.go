@@ -35,7 +35,7 @@ func TestGoldenFiles(t *testing.T) {
 	projectRoot, err := utils.GetProjectDir()
 	require.NoError(t, err, "Failed to get project root")
 	t.Logf("Project root found at: %s", projectRoot)
-	chartsRoot := filepath.Join(projectRoot, "charts")
+	chartsRoot := filepath.Join(projectRoot, "helm")
 
 	t.Run("KustomizeOutput", func(t *testing.T) {
 		// Run kustomize build

@@ -30,4 +30,4 @@ __pycache__
 */Notes.md
 
 # Helm chart artifacts
-kubetasker/charts/*.tgz
+*.tgz

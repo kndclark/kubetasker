@@ -28,6 +28,9 @@ PYVENV=.kubetasker_pyenv
 FRONTEND=kubetasker-frontend
 FRONTEND_PORT=8000
 
+# Path to the Helm charts directory
+CHART_ROOT ?= helm
+
 .PHONY: all
 all: build
 
@@ -83,16 +86,16 @@ golden-update: ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
-	helm template kubetasker-controller-test ./kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
+	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
 	@echo "--- Updating frontend static golden file..."
-	cat kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
+	cat $(CHART_ROOT)/kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
-	helm template kubetasker-frontend-test ./kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
 	@echo "--- Updating umbrella chart golden files..."
 	@for env in dev staging prod; do \
 		echo "--- Generating golden file for $$env environment..."; \
-		helm template umbrella-$$env ./kubetasker \
-			-f ./kubetasker/values-$$env.yaml \
+		helm template umbrella-$$env $(CHART_ROOT)/kubetasker \
+			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
 			--set kubetasker-controller.image.repository=controller \
 			--set kubetasker-controller.image.tag=v0.0.1 \
 			--set kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend \
@@ -188,21 +191,21 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: docker-build-frontend-dev
 docker-build-frontend-dev: ## build frontend API container standalone (outside kubernetes, typically for dev)
-	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(FRONTEND)/Dockerfile ./$(FRONTEND) && \
+	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND) && \
 	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend API container image.
-	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(FRONTEND)/Dockerfile ./$(FRONTEND)
+	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND)
 
 .PHONY: load-docker-frontend
 load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
 	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER)
 
 .PHONY: deploy-frontend
-deploy-frontend: docker-build-frontend load-docker-frontend ## Deploy or update the frontend service in the current cluster.
-	@echo "--- Applying frontend deployment manifest..."
-	$(KUBECTL) apply -f $(FRONTEND)/deployment.yaml
+deploy-frontend: ## Deploy or update the frontend service in the current cluster using Helm.
+	@echo "--- Deploying frontend via Helm..."
+	helm upgrade --install $(FRONTEND) $(CHART_ROOT)/$(FRONTEND) --set image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) --set image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2)
 	@echo "--- Restarting frontend deployment to apply image changes..."
 	$(KUBECTL) rollout restart deployment $(FRONTEND)
 
@@ -304,9 +307,9 @@ deploy-umbrella: docker-build docker-build-frontend install-cert-manager ## Depl
 	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
 	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
 	@echo "--- Updating Helm dependencies for umbrella chart..."
-	helm dependency update ./kubetasker
+	helm dependency update $(CHART_ROOT)/kubetasker
 	@echo "--- Deploying umbrella chart to namespace '$(UMBRELLA_NAMESPACE)' with release name '$(UMBRELLA_RELEASE_NAME)'..."
-	helm upgrade --install $(UMBRELLA_RELEASE_NAME) ./kubetasker \
+	helm upgrade --install $(UMBRELLA_RELEASE_NAME) $(CHART_ROOT)/kubetasker \
 		--namespace $(UMBRELLA_NAMESPACE) --create-namespace \
 		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
