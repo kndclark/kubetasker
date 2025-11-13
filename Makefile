@@ -82,7 +82,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: golden-update
-golden-update: kustomize-manifests ## Update golden manifest files for tests.
+golden-update: kustomize-manifests kustomize ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
