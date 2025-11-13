@@ -25,7 +25,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -120,10 +119,9 @@ var _ = AfterSuite(func() {
 	}
 
 	By("cleaning up test-generated files")
-	kustomizeBaseDir := filepath.Join(projectRootDir, "kustomize", "base")
-	if _, err := os.Stat(kustomizeBaseDir); !os.IsNotExist(err) {
-		os.RemoveAll(kustomizeBaseDir)
-	}
+	// Only remove the files generated during the test, not the whole directory.
+	_ = os.Remove(filepath.Join(projectRootDir, "kustomize", "base", "all.yaml"))
+	_ = os.Remove(filepath.Join(projectRootDir, "kustomize", "base", "crd.yaml"))
 })
 
 // logDebugInfoOnFailure checks if the current Ginkgo spec has failed. If it has, it captures
@@ -245,27 +243,30 @@ func verifyResources(namespace, labelSelector string, expected map[string]string
 
 // runInCurlPod creates a temporary pod with a curl image, waits for it to be ready,
 // executes a given shell command inside it, and then cleans up the pod.
-// It returns the stdout of the executed command or an error. This implementation
-// uses an ephemeral pod (`--attach` and `--rm`) for efficiency, as it creates,
-// runs, and deletes the pod in a single command.
+// It returns the stdout of the executed command or an error.
 func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
-	cmd := exec.Command("kubectl", "run", podName,
-		"--image=curlimages/curl:latest",
-		"--namespace", namespace,
-		"--restart=Never",
-		"--rm",     // Automatically remove the pod when it exits.
-		"--attach", // Attach to the pod's stdio.
-		"--",       // End of kubectl options, start of command to run in the pod.
-		"/bin/sh", "-c", shellCmd)
-
-	output, err := utils.Run(cmd)
-	if err != nil {
-		return output, fmt.Errorf("failed to run ephemeral curl pod %s: %w. Output: %s", podName, err, output)
+	// 1. Create the pod that sleeps, providing a stable target for exec.
+	cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
+		"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("failed to create curl pod %s in namespace %s: %w", podName, namespace, err)
 	}
 
-	// The output of `kubectl run --rm --attach` can include the pod deletion message.
-	// We only care about the actual command output, which comes first.
-	// Example: "200pod \"curl-health-check\" deleted"
-	// We want to extract "200".
-	return strings.Split(output, "pod ")[0], nil
+	// 2. Defer the cleanup to ensure the pod is deleted even if subsequent steps fail.
+	defer func() {
+		deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace, "--ignore-not-found", "--now")
+		_, _ = utils.Run(deleteCmd)
+	}()
+
+	// 3. Wait for the pod to become ready.
+	waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
+		"--namespace", namespace, "--timeout=60s")
+	if _, err := utils.Run(waitCmd); err != nil {
+		return "", fmt.Errorf("curl pod %s in namespace %s did not become ready: %w", podName, namespace, err)
+	}
+
+	// 4. Execute the provided command inside the pod.
+	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
+	output, err := utils.Run(execCmd)
+	return output, err
 }

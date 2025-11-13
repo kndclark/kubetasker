@@ -102,18 +102,6 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 				err = os.WriteFile(crdDestPath, crdBytes, 0644)
 				Expect(err).NotTo(HaveOccurred())
 
-				// Kustomize requires a kustomization.yaml in the base directory.
-				// This file will declare the generated all.yaml as a resource.
-				baseKustomizationContent := `
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - crd.yaml
-  - all.yaml
-`
-				err = os.WriteFile(filepath.Join(kustomizeBaseDir, "kustomization.yaml"), []byte(baseKustomizationContent), 0644)
-				Expect(err).NotTo(HaveOccurred())
-
 				By(fmt.Sprintf("creating namespace %s for kustomize test", tt.namespace))
 				cmd := exec.Command("kubectl", "create", "ns", tt.namespace, "--dry-run=client", "-o", "yaml")
 				nsYAML, err := utils.Run(cmd)
@@ -185,7 +173,7 @@ resources:
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(HavePrefix("200"), "Frontend service should return 200 OK")
+					Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
@@ -194,6 +182,29 @@ resources:
 						output, err := utils.Run(cmd)
 						g.Expect(err).NotTo(HaveOccurred())
 						g.Expect(output).To(Equal("True"), "Job should have a Complete condition with status True")
+					}).WithTimeout(2 * time.Minute).Should(Succeed())
+				})
+
+				It("should successfully undeploy all resources", func() {
+					controllerDeploymentName := tt.helmReleaseName + "-kubetasker-controller"
+
+					By("verifying controller deployment exists before deletion")
+					cmd := exec.Command("kubectl", "get", "deployment", controllerDeploymentName, "-n", tt.namespace)
+					_, err := utils.Run(cmd)
+					Expect(err).NotTo(HaveOccurred(), "Controller deployment should exist before deletion")
+
+					By("undeploying the environment using 'kubectl delete -k'")
+					overlayPath := filepath.Join(projectRootDir, "kustomize", "overlays", tt.environment)
+					deleteCmd := exec.Command("kubectl", "delete", "--ignore-not-found=true", "-k", overlayPath)
+					_, err = utils.Run(deleteCmd)
+					Expect(err).NotTo(HaveOccurred())
+
+					By("verifying controller deployment is removed after deletion")
+					Eventually(func(g Gomega) {
+						cmd := exec.Command("kubectl", "get", "deployment", controllerDeploymentName, "-n", tt.namespace)
+						_, err := utils.Run(cmd)
+						g.Expect(err).To(HaveOccurred(), "Controller deployment should not exist after deletion")
+						g.Expect(err.Error()).To(ContainSubstring("not found"))
 					}).WithTimeout(2 * time.Minute).Should(Succeed())
 				})
 			}

@@ -340,15 +340,25 @@ ENVS ?= dev staging prod
 ENV ?= dev
 
 .PHONY: kustomize-manifests
-kustomize-manifests: ## Generate manifests for Kustomize overlays from the umbrella Helm chart.
-	@echo "--- Generating Kustomize manifests for environments: $(ENVS)"
-	@for env in $(ENVS); do \
-		echo "--- Generating base manifests for Kustomize..."; \
-		mkdir -p kustomize/base; \
-		helm template kubetasker $(CHART_ROOT)/kubetasker \
-			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
-			> kustomize/base/all.yaml; \
-	done
+kustomize-manifests: ## Generate the base manifests required for Kustomize overlays.
+	@echo "--- Generating Kustomize base manifests..."
+	@echo "--- Creating kustomize/base directory..."
+	@mkdir -p kustomize/base
+	@echo "--- Generating kustomize/base/all.yaml from Helm chart using values from environment: $(ENV)..."
+	@helm template kubetasker-base $(CHART_ROOT)/kubetasker \
+		--namespace $(ENV) \
+		-f $(CHART_ROOT)/kubetasker/values-$(ENV).yaml \
+		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
+		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--set global.imagePullPolicy=IfNotPresent \
+		--set kubetasker-controller.webhook.service.namespace=$(ENV) \
+		> kustomize/base/all.yaml
+
+	@echo "--- Copying authoritative CRD to kustomize/base/crd.yaml..."
+	@cp config/crd/bases/task.ktasker.com_ktasks.yaml kustomize/base/crd.yaml
+	@echo "--- Kustomize base manifests generated successfully."
 
 .PHONY: deploy-kustomize
 deploy-kustomize: kustomize-manifests kustomize install-cert-manager ## Deploy a specific environment using Kustomize (e.g., make deploy-kustomize ENV=prod).

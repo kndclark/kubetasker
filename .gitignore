@@ -29,5 +29,9 @@ __pycache__
 .kubetasker_pyenv
 */Notes.md
 
+# Helm/Kustomize generated artifacts
+kustomize/base/all.yaml
+kustomize/base/crd.yaml
+
 # Helm chart artifacts
 *.tgz
