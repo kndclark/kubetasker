@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - standardize_deployments
   push:
     branches:
       - main
