@@ -89,6 +89,16 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 					// Explicitly set the webhook service namespace for the certificate
 					"--set", "kubetasker-controller.webhook.service.namespace="+tt.namespace,
 				)
+
+				// If running in CI, override resource-intensive values to ensure tests can run.
+				if os.Getenv("CI") == "true" {
+					By("CI environment detected, overriding replica counts to 1 for manifest generation")
+					helmTemplateCmd.Args = append(helmTemplateCmd.Args,
+						"--set", "kubetasker-controller.replicaCount=1",
+						"--set", "kubetasker-frontend.replicaCount=1",
+					)
+				}
+
 				helmOutput, err := utils.Run(helmTemplateCmd)
 				Expect(err).NotTo(HaveOccurred())
 				err = os.WriteFile(manifestFile, []byte(helmOutput), 0644)
