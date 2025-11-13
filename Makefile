@@ -116,7 +116,7 @@ golden-diff: ## Show the differences between golden files for manual review.
 	@diff -u test/golden/kustomize_golden.yaml test/golden/helm_golden.yaml || true
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: kustomize-manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running unit and integration tests"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e | grep -v /golden) -coverprofile cover.out
 	@echo "--- Running golden file tests"
@@ -353,6 +353,8 @@ kustomize-manifests: ## Generate the base manifests required for Kustomize overl
 		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
 		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
 		--set global.imagePullPolicy=IfNotPresent \
+		--set kubetasker-controller.certManager.namespace=$(ENV) \
+		--set kubetasker-controller.webhook.namespace=$(ENV) \
 		--set kubetasker-controller.webhook.service.namespace=$(ENV) \
 		> kustomize/base/all.yaml
 
