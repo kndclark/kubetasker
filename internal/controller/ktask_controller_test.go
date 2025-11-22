@@ -41,7 +41,7 @@ var _ = Describe("Ktask Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
 		ktask := &customv1.Ktask{}
 
