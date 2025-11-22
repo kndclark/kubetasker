@@ -66,5 +66,6 @@ jobs:
 
       - name: Run Python vulnerability check
         run: |
+          pip install pip-tools
           pip install pip-audit
           pip-audit
