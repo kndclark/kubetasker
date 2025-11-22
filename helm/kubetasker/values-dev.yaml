@@ -1,0 +1,31 @@
+#
+# Development Environment values for kubetasker
+#
+# helm install kubetasker ./kubetasker -f ./kubetasker/values-dev.yaml
+#
+
+# Global settings for development
+global:
+  imagePullPolicy: IfNotPresent
+
+# Controller settings for dev
+kubetasker-controller:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Frontend settings for dev
+kubetasker-frontend:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi

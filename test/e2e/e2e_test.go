@@ -66,19 +66,21 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace for metrics")
 
 		By("deploying the controller-manager")
-		cmd = exec.Command("helm", "install", helmReleaseName, "./kubetasker-controller",
+		controllerChartPath := filepath.Join(chartsRoot, "kubetasker-controller")
+		cmd = exec.Command("helm", "install", helmReleaseName, controllerChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(projectImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(projectImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "webhookPrefix=single-",
 			"--set", "fullnameOverride="+controllerFullName,
+			"--set", "webhook.service.namespace="+namespace,
 			"--wait")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
 		By("deploying the frontend API service")
-		frontendChartPath := filepath.Join(projectRootDir, "kubetasker-frontend")
+		frontendChartPath := filepath.Join(chartsRoot, "kubetasker-frontend")
 		cmd = exec.Command("helm", "install", frontendDeploymentName, frontendChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),
@@ -639,36 +641,6 @@ func serviceAccountToken() (string, error) {
 	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
 
 	return strings.TrimSpace(token), nil
-}
-
-// runInCurlPod creates a temporary pod with a curl image, waits for it to be ready,
-// executes a given shell command inside it, and then cleans up the pod.
-// It returns the stdout of the executed command or an error.
-func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
-	// 1. Create the pod that sleeps, providing a stable target for exec.
-	cmd := exec.Command("kubectl", "run", podName, "--image=curlimages/curl:latest",
-		"--namespace", namespace, "--restart=Never", "--", "/bin/sh", "-c", "sleep 3600")
-	if _, err := utils.Run(cmd); err != nil {
-		return "", fmt.Errorf("failed to create curl pod %s in namespace %s: %w", podName, namespace, err)
-	}
-
-	// 2. Defer the cleanup to ensure the pod is deleted even if subsequent steps fail.
-	defer func() {
-		deleteCmd := exec.Command("kubectl", "delete", "pod", podName, "--namespace", namespace, "--ignore-not-found", "--now")
-		_, _ = utils.Run(deleteCmd)
-	}()
-
-	// 3. Wait for the pod to become ready.
-	waitCmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/"+podName,
-		"--namespace", namespace, "--timeout=60s")
-	if _, err := utils.Run(waitCmd); err != nil {
-		return "", fmt.Errorf("curl pod %s in namespace %s did not become ready: %w", podName, namespace, err)
-	}
-
-	// 4. Execute the provided command inside the pod.
-	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
-	output, err := utils.Run(execCmd)
-	return output, err
 }
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.

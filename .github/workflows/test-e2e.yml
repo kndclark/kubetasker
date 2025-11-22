@@ -1,8 +1,15 @@
 name: E2E Tests
 
 on:
-  push:
   pull_request:
+    branches:
+      - main
+      - dev
+      - standardize_deployments
+  push:
+    branches:
+      - main
+      - dev
 
 jobs:
   test-e2e:
