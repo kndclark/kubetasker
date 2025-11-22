@@ -1,8 +1,10 @@
-version: "2"
+service:
+  golangci-lint-version: 1.58.1 # Use the latest stable version
+
 run:
   allow-parallel-runners: true
+
 linters:
-  default: none
   enable:
     - copyloopvar
     - dupl
@@ -21,32 +23,26 @@ linters:
     - unconvert
     - unparam
     - unused
-  settings:
-    revive:
-      rules:
-        - name: comment-spacings
-        - name: import-shadowing
-  exclusions:
-    generated: lax
+
+linters-settings:
+  revive:
     rules:
-      - linters:
-          - lll
-        path: api/*
-      - linters:
-          - dupl
-          - lll
-        path: internal/*
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
-formatters:
-  enable:
-    - gofmt
-    - goimports
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+      - name: comment-spacings
+      - name: import-shadowing
+
+issues:
+  # Exclude specific linters from specific paths.
+  exclude-rules:
+    - path: api/
+      linters:
+        - lll
+    - path: internal/
+      linters:
+        - dupl
+        - lll
+  # Exclude all analysis from these paths.
+  exclude:
+    - third_party$
+    - builtin$
+    - examples$
+  # The 'generated: lax' exclusion is now the default behavior, so it's not needed.
