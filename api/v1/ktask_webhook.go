@@ -43,7 +43,7 @@ var _ webhook.Defaulter = &Ktask{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *Ktask) Default() {
-	ktasklog.Info("default", "name", r.Name)
+	ktasklog.Info("default", "name", r.ObjectMeta.Name)
 	// Default the restart policy if it's not set.
 	if r.Spec.RestartPolicy == "" {
 		r.Spec.RestartPolicy = "OnFailure"
@@ -67,13 +67,13 @@ var _ webhook.Validator = &Ktask{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *Ktask) ValidateCreate() (admission.Warnings, error) {
-	ktasklog.Info("validate create", "name", r.Name)
+	ktasklog.Info("validate create", "name", r.ObjectMeta.Name)
 	return nil, r.validateKtask().ToAggregate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *Ktask) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	ktasklog.Info("validate update", "name", r.Name)
+	ktasklog.Info("validate update", "name", r.ObjectMeta.Name)
 	oldKtask, ok := old.(*Ktask)
 	if !ok {
 		return nil, field.InternalError(nil, errors.New("expected old object to be a Ktask"))
@@ -90,7 +90,7 @@ func (r *Ktask) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *Ktask) ValidateDelete() (admission.Warnings, error) {
-	ktasklog.Info("validate delete", "name", r.Name)
+	ktasklog.Info("validate delete", "name", r.ObjectMeta.Name)
 	// No validation needed on deletion.
 	return nil, nil
 }
