@@ -1,0 +1,31 @@
+#
+# Staging Environment values for kubetasker
+#
+# helm install kubetasker-staging ./kubetasker -f ./kubetasker/values-staging.yaml
+#
+
+# Global settings for staging
+global:
+  imagePullPolicy: Always # Ensure the latest image is always pulled for staging tests
+
+# Controller settings for staging
+kubetasker-controller:
+  replicaCount: 2 # Add a replica for better availability testing
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Frontend settings for staging
+kubetasker-frontend:
+  replicaCount: 2
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi

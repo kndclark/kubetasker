@@ -1,0 +1,62 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-mutating-webhook-configuration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "kubetasker-controller.fullname" . }}-serving-cert"
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-task-ktasker-com-v1-ktask
+  failurePolicy: Fail
+  name: {{ .Values.webhookPrefix }}mktask.kb.io
+  rules:
+  - apiGroups:
+    - task.ktasker.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - ktasks
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-validating-webhook-configuration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "kubetasker-controller.fullname" . }}-serving-cert"
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "kubetasker-controller.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-task-ktasker-com-v1-ktask
+  failurePolicy: Fail
+  name: {{ .Values.webhookPrefix }}vktask.kb.io
+  rules:
+  - apiGroups:
+    - task.ktasker.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - ktasks
+  sideEffects: None

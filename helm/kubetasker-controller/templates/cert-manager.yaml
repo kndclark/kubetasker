@@ -1,0 +1,44 @@
+{{- if .Values.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+  - {{ include "kubetasker-controller.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ include "kubetasker-controller.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "kubetasker-controller.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "kubetasker-controller.fullname" . }}-serving-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubetasker-controller.fullname" . }}-metrics-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubetasker-controller.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+  - {{ include "kubetasker-controller.fullname" . }}-metrics-service.{{ .Release.Namespace }}.svc
+  - {{ include "kubetasker-controller.fullname" . }}-metrics-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "kubetasker-controller.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "kubetasker-controller.fullname" . }}-metrics-cert
+{{- end }}

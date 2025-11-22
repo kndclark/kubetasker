@@ -1,0 +1,12 @@
+apiVersion: v2
+name: kubetasker-frontend
+description: A Helm chart for the KubeTasker frontend API
+
+# A chart can be either an 'application' or a 'library' chart.
+type: application
+
+# This is the chart version.
+version: 0.1.0
+
+# This is the version number of the application being deployed.
+appVersion: "0.0.1"

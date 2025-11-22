@@ -1,0 +1,11 @@
+The KubeTasker controller has been installed.
+
+To verify that the controller is running, run this command:
+
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "kubetasker-controller.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+You should see one pod in the 'Running' state.
+
+To view the controller logs, run:
+
+  kubectl logs -f -n {{ .Release.Namespace }} $(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "kubetasker-controller.name" . }}" -o jsonpath="{.items[0].metadata.name}")
