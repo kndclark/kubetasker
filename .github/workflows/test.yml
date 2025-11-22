@@ -66,6 +66,6 @@ jobs:
 
       - name: Run Python vulnerability check
         run: |
-          pip install pip-tools
           pip install pip-audit
-          pip-audit
+          # Audit the dependencies specified in both top-level and frontend requirements.txt files
+          pip-audit -r requirements.txt -r helm/kubetasker-frontend/requirements.txt
