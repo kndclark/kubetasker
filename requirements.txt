@@ -32,5 +32,5 @@ sniffio
 starlette
 typing-inspection
 typing_extensions
-urllib3
+urllib3>=2.5.0
 websocket-client

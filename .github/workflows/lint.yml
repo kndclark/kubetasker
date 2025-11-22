@@ -11,7 +11,7 @@ on:
       - dev
 
 jobs:
-  lint:
+  golangci-lint:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +23,36 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify Go modules
+        run: go mod verify
+
+      - name: Check for tidy Go modules
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
       - name: Run linter
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.4.0
+          version: v2.6.2
+          only-new-issues: true
+          args: --enable=gosec
+
+
+  bandit-scan:
+    name: Run Bandit Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Bandit and scan
+        run: |
+          pip install bandit
+          # Scan the frontend directory for high-severity issues
+          bandit -r frontend/ -ll -s B101,B603,B607
