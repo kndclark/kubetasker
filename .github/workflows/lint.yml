@@ -26,7 +26,7 @@ jobs:
       - name: Run linter
         uses: golangci/golangci-lint-action@v6
         with:
-          # Optional: show only new issues if it's a pull request
+          version: v1.58.1
           only-new-issues: true
           # Add `gosec` to the list of linters to run
           args: --enable=gosec
