@@ -23,10 +23,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify Go modules
+        run: go mod verify
+
+      - name: Check for tidy Go modules
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.58.1
+          version: v2.6.2
           only-new-issues: true
           # Add `gosec` to the list of linters to run
           args: --enable=gosec
