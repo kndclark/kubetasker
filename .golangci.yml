@@ -1,45 +1,54 @@
+version: "2"
 run:
   allow-parallel-runners: true
-
 linters:
   enable:
     - copyloopvar
     - dupl
-    - errcheck
     - ginkgolinter
     - goconst
     - gocyclo
-    - govet
-    - ineffassign
     - lll
     - misspell
     - nakedret
     - prealloc
     - revive
-    - staticcheck
     - unconvert
     - unparam
-    - unused
-
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: comment-spacings
-      - name: import-shadowing
-
-issues:
-  # Exclude specific linters from specific paths.
-  exclude-rules:
-    - path: api/
-      linters:
-        - lll
-    - path: internal/
-      linters:
-        - dupl
-        - lll
-  # Exclude all analysis from these paths.
-  exclude:
-    - third_party$
-    - builtin$
-    - examples$
-  # The 'generated: lax' exclusion is now the default behavior, so it's not needed.
+      - linters:
+          - lll
+        path: api/
+      - linters:
+          - dupl
+          - lll
+        path: internal/
+      - path: (.+)\.go$
+        text: third_party$
+      - path: (.+)\.go$
+        text: builtin$
+      - path: (.+)\.go$
+        text: examples$
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
