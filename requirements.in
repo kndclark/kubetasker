@@ -1,0 +1,6 @@
+# High-level dependencies for the KubeTasker project.
+# Use `pip-compile` to generate the requirements.txt file.
+fastapi
+kubernetes
+pytest
+python-multipart  # For starlette form parsing

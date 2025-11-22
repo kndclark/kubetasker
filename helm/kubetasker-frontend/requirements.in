@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+PyYAML
+kubernetes
+python-multipart  # For starlette form parsing
