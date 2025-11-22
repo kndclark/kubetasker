@@ -12,7 +12,6 @@ import (
 	"github.com/kndclark/kubetasker/internal/controller"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -47,13 +46,6 @@ type mockManager struct {
 	addReadyzCheckFn  func(string, healthz.Checker) error
 	startFn           func(context.Context) error
 	client            client.Client
-	scheme            *runtime.Scheme
-}
-
-// Mock implementations for client.Client
-type mockClient struct {
-	mock.Mock
-	client.Client
 }
 
 func (m *mockManager) GetClient() client.Client {
@@ -89,7 +81,7 @@ func (m *mockManager) Start(ctx context.Context) error {
 }
 
 func TestMainFunction(t *testing.T) {
-	g := NewGomegaWithT(t)
+	g := NewGomegaWithT(t) //
 
 	// This is a simple smoke test to ensure the main function can be invoked
 	// and starts up without immediately crashing. We run it in a separate
@@ -113,7 +105,7 @@ func TestMainFunction(t *testing.T) {
 }
 
 func TestRunFunctionErrorPaths(t *testing.T) {
-	g := NewGomegaWithT(t)
+	g := NewGomegaWithT(t) //
 	originalNewManager := newManager
 	// ensure test manager is restored to original value after sub-tests complete
 	defer func() { newManager = originalNewManager }()
