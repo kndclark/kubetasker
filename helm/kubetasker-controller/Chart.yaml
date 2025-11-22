@@ -1,7 +1,7 @@
 apiVersion: v2
 name: kubetasker-controller
 description: A Helm chart for the KubeTasker controller-manager
-# TODO: placeholder for kubetasker logo
+# TODO: add kubetasker logo
 icon: https://www.example.com/icon.png
 
 # A chart can be either an 'application' or a 'library' chart.

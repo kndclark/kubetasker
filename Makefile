@@ -122,10 +122,6 @@ test: kustomize-manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running golden file tests"
 	go test -v ./test/golden
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER = kubetasker
 KIND_CLUSTER_DEV ?= kubetasker-test-e2e
 

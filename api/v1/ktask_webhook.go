@@ -60,7 +60,6 @@ func (r *Ktask) Default() {
 	}
 }
 
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern: /validate-{group}-{version}-{kind}
 // +kubebuilder:webhook:path=/validate-task-ktasker-com-v1-ktask,mutating=false,failurePolicy=fail,sideEffects=None,groups=task.ktasker.com,resources=ktasks,verbs=create;update,versions=v1,name=vktask.kb.io,admissionReviewVersions=v1
 
