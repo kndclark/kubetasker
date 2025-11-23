@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 PyYAML
 kubernetes
+urllib3>=2.5.0

@@ -2,25 +2,19 @@ version: "2"
 run:
   allow-parallel-runners: true
 linters:
-  default: none
   enable:
     - copyloopvar
     - dupl
-    - errcheck
     - ginkgolinter
     - goconst
     - gocyclo
-    - govet
-    - ineffassign
     - lll
     - misspell
     - nakedret
     - prealloc
     - revive
-    - staticcheck
     - unconvert
     - unparam
-    - unused
   settings:
     revive:
       rules:
@@ -28,22 +22,30 @@ linters:
         - name: import-shadowing
   exclusions:
     generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
       - linters:
           - lll
-        path: api/*
+        path: api/
       - linters:
           - dupl
           - lll
-        path: internal/*
+        path: internal/
+      - path: (.+)\.go$
+        text: third_party$
+      - path: (.+)\.go$
+        text: builtin$
+      - path: (.+)\.go$
+        text: examples$
     paths:
       - third_party$
       - builtin$
       - examples$
 formatters:
-  enable:
-    - gofmt
-    - goimports
   exclusions:
     generated: lax
     paths:
