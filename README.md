@@ -1,5 +1,11 @@
 # kubetasker
 
+## ⚠️ Project Status: Work in Progress
+
+**KubeTasker is currently under active development and should be considered experimental.**
+
+While the core features are functional, it is not yet recommended for production use. APIs may change, and there might be bugs. Feedback and contributions are highly encouraged!
+
 [![E2E Tests](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml)
 [![Go Tests](https://github.com/kndclark/kubetasker/actions/workflows/test.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kndclark/kubetasker)](https://goreportcard.com/report/github.com/kndclark/kubetasker)
