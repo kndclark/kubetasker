@@ -37,7 +37,6 @@ const (
 	namespace              = "kubetasker-system-e2e"
 	helmReleaseName        = "kubetasker-e2e"
 	controllerFullName     = helmReleaseName + "-kubetasker-controller"
-	metricsRoleBindingName = helmReleaseName + "-metrics-binding"
 	frontendDeploymentName = "kubetasker-frontend"
 	frontendServiceName    = "kubetasker-frontend-service"
 )
@@ -87,10 +86,22 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "fullnameOverride="+frontendServiceName,
+			// Enable HPA for the autoscaling test
+			"--set", "autoscaling.enabled=true",
+			"--set", "autoscaling.minReplicas=1",
+			"--set", "autoscaling.maxReplicas=3",
 			"--wait")
 		_, err = utils.Run(cmd)
 
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the frontend API service")
+
+		By("waiting for the controller's webhook secret to be created by cert-manager")
+		verifyWebhookSecretReady := func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "secret", controllerFullName+"-serving-cert", "-n", namespace)
+			_, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred(), "Webhook secret should be created by cert-manager")
+		}
+		Eventually(verifyWebhookSecretReady, "2m", "1s").Should(Succeed())
 
 		By("verifying the controller-manager pod is running")
 		verifyControllerUp := func(g Gomega) {
@@ -204,6 +215,45 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(output).To(ContainSubstring("8443"), "Metrics endpoint is not ready")
 			}
 			Eventually(verifyMetricsEndpointReady).Should(Succeed())
+
+			By("creating a Role and RoleBinding for the metrics test ServiceAccount")
+			// Create a Role that allows getting the metrics service endpoints
+			roleYAML := fmt.Sprintf(`
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: metrics-test-role
+  namespace: %s
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+`, namespace)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(roleYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Role for metrics test")
+
+			// Bind the Role to the controller's ServiceAccount
+			roleBindingYAML := fmt.Sprintf(`
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: metrics-test-rolebinding
+  namespace: %s
+subjects:
+- kind: ServiceAccount
+  name: %s
+  namespace: %s
+roleRef:
+  kind: Role
+  name: metrics-test-role
+  apiGroup: rbac.authorization.k8s.io
+`, namespace, controllerFullName, namespace)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(roleBindingYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create RoleBinding for metrics test")
 
 			By("verifying that the controller manager is serving the metrics server")
 			verifyMetricsServerStarted := func(g Gomega) {
@@ -625,6 +675,63 @@ spec:
 			Expect(output).To(ContainSubstring("admission webhook \"single-vktask.kb.io\" denied the request"), "The webhook rejection message was not found in the output.")
 		})
 	})
+
+	Context("Autoscaling", func() {
+		It("should scale up the frontend deployment under load", func() {
+			// This test is designed to run where HPA is enabled.
+			// We check for the HPA resource first. If it's not there, we skip the test.
+			By("checking if HPA is enabled for the frontend")
+			hpaName := frontendServiceName
+			cmd := exec.Command("kubectl", "get", "hpa", hpaName, "-n", namespace)
+			_, err := utils.Run(cmd)
+			if err != nil {
+				Skip(fmt.Sprintf("Skipping HPA test: HPA resource '%s' not found. Enable autoscaling in the chart.", hpaName))
+			}
+
+			By("getting the initial number of frontend replicas")
+			getReplicas := func() int {
+				cmd := exec.Command("kubectl", "get", "deployment", frontendServiceName, "-n", namespace, "-o", "jsonpath={.status.readyReplicas}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				var replicas int
+				fmt.Sscanf(output, "%d", &replicas)
+				return replicas
+			}
+			initialReplicas := getReplicas()
+			Expect(initialReplicas).To(BeNumerically(">", 0), "Should have at least one replica to start")
+
+			By("generating load against the frontend service")
+			// We use vegeta, a popular HTTP load testing tool.
+			// This command will send requests to the /healthz endpoint for 60 seconds.
+			// The rate and duration may need tuning based on your cluster and HPA settings.
+			loadTestPodName := "vegeta-load-test"
+			targetURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
+			// Note: The rate (e.g., 50) should be high enough to breach the CPU target.
+			// This might need adjustment.
+			vegetaCmd := fmt.Sprintf("echo 'GET %s' | vegeta attack -rate=50 -duration=90s | vegeta report", targetURL)
+
+			// We run the load test in a temporary pod.
+			// Using a helper function to run a command in a pod and clean it up.
+			runInPod(loadTestPodName, namespace, "peterevans/vegeta", []string{"/bin/sh", "-c", vegetaCmd})
+
+			By("verifying the frontend deployment scaled up")
+			// The HPA controller checks metrics every 15 seconds by default, and scaling decisions take time.
+			// We'll check for an increase in replicas over a few minutes.
+			verifyScaleUp := func(g Gomega) {
+				currentReplicas := getReplicas()
+				g.Expect(currentReplicas).To(BeNumerically(">", initialReplicas),
+					fmt.Sprintf("Expected replicas to scale up from %d", initialReplicas))
+			}
+			// A generous timeout is needed for HPA to react and for new pods to become ready.
+			Eventually(verifyScaleUp, 5*time.Minute, 20*time.Second).Should(Succeed())
+
+			// After the test, the load stops, and the HPA should eventually scale back down.
+			// We can add a check for that too if desired, but it's less critical for the test.
+			By("cleaning up the load test pod")
+			cmd = exec.Command("kubectl", "delete", "pod", loadTestPodName, "-n", namespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+	})
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
@@ -641,6 +748,22 @@ func serviceAccountToken() (string, error) {
 	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
 
 	return strings.TrimSpace(token), nil
+}
+
+// runInPod creates and runs a pod to execute a command, then deletes it.
+// This is useful for running tools like curl or vegeta from within the cluster.
+func runInPod(podName, namespace, image string, command []string) {
+	args := []string{"run", podName, "--restart=Never",
+		"--namespace", namespace,
+		"--image", image,
+	}
+	args = append(args, "--")
+	args = append(args, command...)
+	_, err := utils.Run(exec.Command("kubectl", args...))
+	Expect(err).NotTo(HaveOccurred(), "Failed to run pod "+podName)
+
+	// We don't wait for completion here, as the load test runs in the background.
+	// The caller is responsible for cleanup.
 }
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.

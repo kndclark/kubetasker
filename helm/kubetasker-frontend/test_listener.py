@@ -244,6 +244,21 @@ def test_list_ktasks(setup_app_and_mock_k8s_client, query_params, expected_names
         plural="ktasks",
     )
 
+def test_list_ktasks_empty(setup_app_and_mock_k8s_client):
+    """
+    Tests that GET /ktask returns an empty list when no Ktasks exist.
+    """
+    mock_k8s_client, client, _ = setup_app_and_mock_k8s_client
+    # Simulate the Kubernetes API returning an empty list of items
+    mock_k8s_response = {"items": []}
+    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
+
+    response = client.get("/ktask?namespace=empty-ns")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.assert_called_once()
+
 @pytest.mark.parametrize(
     "api_status, api_reason, api_body, expected_text",
     [

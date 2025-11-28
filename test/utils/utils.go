@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	certManagerManifest = "test/e2e/vendor/cert-manager.yaml"
-	defaultKindBinary   = "kind"
-	defaultKindCluster  = "kind"
+	certManagerManifest   = "test/e2e/vendor/cert-manager.yaml"
+	metricsServerManifest = "test/e2e/vendor/metrics-server.yaml"
+	defaultKindBinary     = "kind"
 )
 
 func warnError(err error) {
@@ -58,7 +58,12 @@ func Run(cmd *exec.Cmd) (string, error) {
 
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
-	cmd := exec.Command("kubectl", "delete", "-f", certManagerManifest)
+	projectDir, err := GetProjectDir()
+	if err != nil {
+		warnError(fmt.Errorf("failed to get project dir for uninstalling cert-manager: %w", err))
+		return
+	}
+	cmd := exec.Command("kubectl", "delete", "-f", filepath.Join(projectDir, certManagerManifest))
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -79,7 +84,12 @@ func UninstallCertManager() {
 
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
-	cmd := exec.Command("kubectl", "apply", "-f", certManagerManifest)
+	projectDir, err := GetProjectDir()
+	if err != nil {
+		return fmt.Errorf("failed to get project dir for installing cert-manager: %w", err)
+	}
+
+	cmd := exec.Command("kubectl", "apply", "-f", filepath.Join(projectDir, certManagerManifest))
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
@@ -91,7 +101,46 @@ func InstallCertManager() error {
 		"--timeout", "5m",
 	)
 
-	_, err := Run(cmd)
+	_, err = Run(cmd)
+	return err
+}
+
+// InstallMetricsServer applies the Kubernetes Metrics Server components.
+// For Kind clusters, it's necessary to patch the deployment to allow insecure TLS.
+// It reads the manifest, adds the required arguments for Kind, and then applies it.
+func InstallMetricsServer() error {
+	projectDir, err := GetProjectDir()
+	if err != nil {
+		return fmt.Errorf("failed to get project dir for installing metrics-server: %w", err)
+	}
+	// Read the original metrics-server manifest
+	manifest, err := os.ReadFile(filepath.Join(projectDir, metricsServerManifest))
+	if err != nil {
+		return fmt.Errorf("failed to read metrics-server manifest: %w", err)
+	}
+
+	// Replace the default args with the ones required for Kind, including --kubelet-insecure-tls
+	modifiedManifest := strings.Replace(string(manifest),
+		"        - --kubelet-use-node-status-port",
+		"        - --kubelet-use-node-status-port\n        - --kubelet-insecure-tls", 1)
+
+	// Apply the modified manifest
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(modifiedManifest)
+	if _, err := Run(cmd); err != nil {
+		return fmt.Errorf("failed to restart metrics-server deployment: %w", err)
+	}
+
+	// Wait for the metrics-server deployment to be ready.
+	cmd = exec.Command("kubectl", "wait", "deployment/metrics-server", "--for", "condition=Available", "-n", "kube-system", "--timeout=2m")
+	_, err = Run(cmd)
+	if err != nil {
+		return fmt.Errorf("metrics-server deployment did not become available: %w", err)
+	}
+
+	// Also, wait for the APIService to be available.
+	cmd = exec.Command("kubectl", "wait", "apiservice", "v1beta1.metrics.k8s.io", "--for", "condition=Available", "--timeout=2m")
+	_, err = Run(cmd)
 	return err
 }
 

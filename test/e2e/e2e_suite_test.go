@@ -106,6 +106,12 @@ var _ = BeforeSuite(func() {
 		} else {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
 		}
+
+		By("installing the Kubernetes Metrics Server")
+		// The HPA tests require the Metrics Server to be running.
+		// We apply the components and then patch the deployment for insecure TLS, which is necessary for Kind.
+		Expect(utils.InstallMetricsServer()).To(Succeed(), "Failed to install Metrics Server")
+
 	}
 })
 

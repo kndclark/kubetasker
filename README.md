@@ -51,6 +51,7 @@ Running `kubectl apply -k kustomize/overlays/<env>` will build and deploy the ma
 *   A running Kubernetes cluster (e.g., `kind`, `minikube`, or a cloud provider's cluster).
 *   `kubectl` installed and configured.
 *   `helm` v3+ installed.
+*   **Metrics Server** (Optional): If you plan to enable the Horizontal Pod Autoscaler (HPA) for the frontend service, the Kubernetes Metrics Server must be installed in your cluster.
 
 ### Deployment
 
