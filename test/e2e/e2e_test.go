@@ -80,12 +80,14 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("deploying the frontend API service")
 		frontendChartPath := filepath.Join(chartsRoot, "kubetasker-frontend")
+		hpaValuesPath := filepath.Join(testRoot, "e2e", "hpa-values.yaml")
 		cmd = exec.Command("helm", "install", frontendDeploymentName, frontendChartPath,
 			"--namespace", namespace,
 			"--set", fmt.Sprintf("image.repository=%s", strings.Split(frontendImage, ":")[0]),
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "fullnameOverride="+frontendServiceName,
+			"-f", hpaValuesPath, // Use test-specific values for HPA
 			// Enable HPA for the autoscaling test
 			"--set", "autoscaling.enabled=true",
 			"--set", "autoscaling.minReplicas=1",
@@ -708,7 +710,7 @@ spec:
 			targetURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/healthz", frontendServiceName, namespace)
 			// Note: The rate (e.g., 50) should be high enough to breach the CPU target.
 			// This might need adjustment.
-			vegetaCmd := fmt.Sprintf("echo 'GET %s' | vegeta attack -rate=50 -duration=90s | vegeta report", targetURL)
+			vegetaCmd := fmt.Sprintf("echo 'GET %s' | vegeta attack -rate=300 -duration=90s | vegeta report", targetURL)
 
 			// We run the load test in a temporary pod.
 			// Using a helper function to run a command in a pod and clean it up.
