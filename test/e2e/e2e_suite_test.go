@@ -50,6 +50,7 @@ var (
 	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
 	projectRootDir string
 	chartsRoot     string
+	testRoot       string
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -67,6 +68,7 @@ var _ = BeforeSuite(func() {
 	projectRootDir, err = utils.GetProjectDir()
 	Expect(err).NotTo(HaveOccurred(), "Failed to get project root dir")
 	chartsRoot = filepath.Join(projectRootDir, "helm")
+	testRoot = filepath.Join(projectRootDir, "test")
 
 	By("building the manager(Operator) image")
 	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
@@ -106,6 +108,12 @@ var _ = BeforeSuite(func() {
 		} else {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
 		}
+
+		By("installing the Kubernetes Metrics Server")
+		// The HPA tests require the Metrics Server to be running.
+		// We apply the components and then patch the deployment for insecure TLS, which is necessary for Kind.
+		Expect(utils.InstallMetricsServer()).To(Succeed(), "Failed to install Metrics Server")
+
 	}
 })
 

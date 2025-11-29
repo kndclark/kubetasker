@@ -29,3 +29,8 @@ kubetasker-frontend:
     requests:
       cpu: 100m
       memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75

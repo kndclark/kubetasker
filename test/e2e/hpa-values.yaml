@@ -1,0 +1,6 @@
+# /home/dev/kubetasker/test/e2e/hpa-values.yaml
+#
+# These values are specifically for the E2E HPA test.
+# They override the defaults in the main kubetasker-frontend chart's values.yaml.
+autoscaling:
+  targetCPUUtilizationPercentage: 20 # Lower target to make scaling easier to trigger

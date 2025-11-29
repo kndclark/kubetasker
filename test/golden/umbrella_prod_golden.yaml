@@ -478,6 +478,32 @@ spec:
             cpu: 200m
             memory: 256Mi
 ---
+# Source: kubetasker/charts/kubetasker-frontend/templates/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: umbrella-prod-kubetasker-frontend
+  labels:
+    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/name: kubetasker-frontend
+    app.kubernetes.io/instance: umbrella-prod
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: umbrella-prod-kubetasker-frontend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
 # Source: kubetasker/charts/kubetasker-controller/templates/webhooks.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration

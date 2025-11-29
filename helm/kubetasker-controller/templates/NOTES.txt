@@ -9,3 +9,9 @@ You should see one pod in the 'Running' state.
 To view the controller logs, run:
 
   kubectl logs -f -n {{ .Release.Namespace }} $(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "kubetasker-controller.name" . }}" -o jsonpath="{.items[0].metadata.name}")
+
+NOTE: If you have enabled Horizontal Pod Autoscaling (HPA) for any component
+that relies on this controller (like the kubetasker-frontend), please ensure
+that the Kubernetes Metrics Server is installed in your cluster. The HPA
+requires the Metrics Server to fetch CPU and memory metrics for scaling
+decisions.

@@ -28,6 +28,7 @@ handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
 log.addHandler(handler)
 
+
 # Pydantic models for data validation and API documentation
 class ObjectMeta(BaseModel):
     name: str

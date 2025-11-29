@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ type umbrellaChartTest struct {
 	frontendServiceName string
 	expectedReplicas    map[string]int
 	expectedResources   map[string]map[string]string
+	expectedHPAConfig   map[string]int // min, max
 }
 
 // Define tests for each environment.
@@ -41,6 +43,7 @@ var umbrellaTests = []umbrellaChartTest{
 			"controller": {"requests.cpu": "100m", "requests.memory": "128Mi", "limits.cpu": "200m", "limits.memory": "256Mi"},
 			"frontend":   {"requests.cpu": "50m", "requests.memory": "64Mi", "limits.cpu": "100m", "limits.memory": "128Mi"},
 		},
+		// HPA is disabled for dev
 	},
 	{
 		environment:         "staging",
@@ -53,6 +56,7 @@ var umbrellaTests = []umbrellaChartTest{
 			"controller": {"requests.cpu": "250m", "requests.memory": "256Mi", "limits.cpu": "500m", "limits.memory": "512Mi"},
 			"frontend":   {"requests.cpu": "100m", "requests.memory": "128Mi", "limits.cpu": "250m", "limits.memory": "256Mi"},
 		},
+		expectedHPAConfig: map[string]int{"min": 2, "max": 5},
 	},
 	{
 		environment:         "prod",
@@ -65,6 +69,7 @@ var umbrellaTests = []umbrellaChartTest{
 			"controller": {"requests.cpu": "500m", "requests.memory": "512Mi", "limits.cpu": "1", "limits.memory": "1Gi"},
 			"frontend":   {"requests.cpu": "200m", "requests.memory": "256Mi", "limits.cpu": "500m", "limits.memory": "512Mi"},
 		},
+		expectedHPAConfig: map[string]int{"min": 3, "max": 10}, // Example for prod
 	},
 }
 
@@ -160,6 +165,34 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 				By("verifying frontend resource settings")
 				verifyResources(tt.namespace, "app.kubernetes.io/name=kubetasker-frontend", tt.expectedResources["frontend"])
+			})
+
+			It("should have the correct HPA configuration", func() {
+				hpaName := tt.frontendServiceName
+				cmd := exec.Command("kubectl", "get", "hpa", hpaName, "-n", tt.namespace, "-o", "json")
+
+				if tt.expectedHPAConfig == nil {
+					By("verifying the HPA resource does NOT exist")
+					// This is the improved logic: we assert the absence of the HPA.
+					_, err := utils.Run(cmd)
+					Expect(err).To(HaveOccurred(), "HPA resource should not exist for this environment")
+					// The error message from kubectl for a missing resource is what we expect.
+					Expect(err.Error()).To(ContainSubstring("not found"))
+				} else {
+					By("verifying the HPA resource exists and is configured correctly")
+					Eventually(func(g Gomega) {
+						output, err := utils.Run(cmd)
+						g.Expect(err).NotTo(HaveOccurred(), "HPA resource should exist")
+
+						var hpaData map[string]interface{}
+						err = json.Unmarshal([]byte(output), &hpaData)
+						g.Expect(err).NotTo(HaveOccurred())
+
+						spec := hpaData["spec"].(map[string]interface{})
+						g.Expect(int(spec["minReplicas"].(float64))).To(Equal(tt.expectedHPAConfig["min"]))
+						g.Expect(int(spec["maxReplicas"].(float64))).To(Equal(tt.expectedHPAConfig["max"]))
+					}).Should(Succeed())
+				}
 			})
 
 			// Only run the functional test for the 'dev' environment to avoid redundancy.

@@ -29,3 +29,5 @@ kubetasker-frontend:
     requests:
       cpu: 50m
       memory: 64Mi
+  autoscaling:
+    enabled: false # HPA is not needed for a single-replica dev environment
