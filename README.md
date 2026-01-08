@@ -1,10 +1,8 @@
 # kubetasker
 
-## ⚠️ Project Status: Work in Progress
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
-**KubeTasker is currently under active development and should be considered experimental.**
-
-While the core features are functional, it is not yet recommended for production use. APIs may change, and there might be bugs. Feedback and contributions are highly encouraged!
+KubeTasker is currently under active development and should be considered experimental. While the core features are functional, it is not yet recommended for production use. APIs may change, and there might be bugs. Feedback and contributions are highly encouraged!
 
 [![E2E Tests](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml)
 [![Go Tests](https://github.com/kndclark/kubetasker/actions/workflows/test.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test.yml)

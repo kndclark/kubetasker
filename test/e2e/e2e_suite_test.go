@@ -50,6 +50,7 @@ var (
 	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
 	projectRootDir string
 	chartsRoot     string
+	testRoot       string
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -67,6 +68,7 @@ var _ = BeforeSuite(func() {
 	projectRootDir, err = utils.GetProjectDir()
 	Expect(err).NotTo(HaveOccurred(), "Failed to get project root dir")
 	chartsRoot = filepath.Join(projectRootDir, "helm")
+	testRoot = filepath.Join(projectRootDir, "test")
 
 	By("building the manager(Operator) image")
 	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
@@ -170,6 +172,12 @@ func logDebugInfoOnFailure(namespace string) {
 		exec.Command("kubectl", "describe", "pod", "--selector=app.kubernetes.io/name=kubetasker-frontend", "-n", namespace))
 
 	// --- Capture Webhook Configurations ---
+	logCommand("Listing all MutatingWebhookConfigurations",
+		exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io"))
+
+	logCommand("Listing all ValidatingWebhookConfigurations",
+		exec.Command("kubectl", "get", "validatingwebhookconfigurations.admissionregistration.k8s.io"))
+
 	logCommand("Fetching MutatingWebhookConfiguration YAML",
 		exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
 			"-l", "app.kubernetes.io/part-of=kubetasker", "-o", "yaml"))
