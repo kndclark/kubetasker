@@ -204,6 +204,74 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 						g.Expect(output).To(Equal("Succeeded"), "Ktask phase should be Succeeded")
 					}).WithTimeout(1 * time.Minute).Should(Succeed())
 				})
+
+				It("should scale the frontend deployment when under load (HPA)", func() {
+					// Note: This test relies on the metrics-server being installed in the cluster.
+					// If metrics-server is missing, HPA will not be able to retrieve metrics, and this test will time out.
+
+					hpaName := "frontend-hpa-test"
+					targetDeployment := tt.frontendServiceName // fullnameOverride used as deployment name
+					minReplicas := 1
+					maxReplicas := 3
+					if os.Getenv("CI") == "true" {
+						By("CI environment detected, limiting HPA maxReplicas to 2")
+						maxReplicas = 2
+					}
+					cpuTarget := 5 // Low CPU target to trigger scaling easily
+
+					By("creating the HPA resource")
+					hpaYAML := fmt.Sprintf(`
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: %s
+  minReplicas: %d
+  maxReplicas: %d
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: %d
+`, hpaName, tt.namespace, targetDeployment, minReplicas, maxReplicas, cpuTarget)
+
+					cmd := exec.Command("kubectl", "apply", "-f", "-")
+					cmd.Stdin = strings.NewReader(hpaYAML)
+					_, err := utils.Run(cmd)
+					Expect(err).NotTo(HaveOccurred())
+
+					By("starting a load generator")
+					loadGenName := "load-generator"
+					targetURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/healthz", tt.frontendServiceName, tt.namespace)
+
+					// Run a pod that continuously hits the healthz endpoint
+					cmd = exec.Command("kubectl", "run", loadGenName, "--image=curlimages/curl:latest",
+						"--namespace", tt.namespace, "--restart=Never", "--", "/bin/sh", "-c",
+						fmt.Sprintf("while true; do curl -s %s > /dev/null; done", targetURL))
+					_, err = utils.Run(cmd)
+					Expect(err).NotTo(HaveOccurred())
+
+					By("waiting for the frontend deployment to scale up")
+					Eventually(func(g Gomega) {
+						cmd := exec.Command("kubectl", "get", "deployment", targetDeployment, "-n", tt.namespace, "-o", "jsonpath={.status.replicas}")
+						output, err := utils.Run(cmd)
+						g.Expect(err).NotTo(HaveOccurred())
+						// Expect replicas to increase beyond 1
+						g.Expect(output).NotTo(Equal("1"))
+						g.Expect(output).NotTo(Equal("0"))
+					}, 5*time.Minute, 5*time.Second).Should(Succeed(), "Frontend deployment failed to scale up under load")
+
+					// Cleanup HPA and load generator
+					_ = exec.Command("kubectl", "delete", "hpa", hpaName, "-n", tt.namespace).Run()
+					_ = exec.Command("kubectl", "delete", "pod", loadGenName, "-n", tt.namespace, "--force", "--grace-period=0").Run()
+				})
 			}
 		})
 	}

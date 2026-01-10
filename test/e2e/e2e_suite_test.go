@@ -38,7 +38,8 @@ var (
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
 	// These variables are useful if CertManager is already installed, avoiding
 	// re-installation and conflicts.
-	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	skipCertManagerInstall   = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	skipMetricsServerInstall = os.Getenv("METRICS_SERVER_INSTALL_SKIP") == "true"
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
 	isCertManagerAlreadyInstalled = false
 
@@ -107,6 +108,16 @@ var _ = BeforeSuite(func() {
 			Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
 		} else {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
+		}
+	}
+
+	if !skipMetricsServerInstall {
+		By("checking if metrics-server is installed")
+		cmd := exec.Command("kubectl", "get", "apiservice", "v1beta1.metrics.k8s.io")
+		if _, err := utils.Run(cmd); err != nil {
+			Expect(installMetricsServer()).To(Succeed(), "Failed to install metrics-server")
+		} else {
+			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: metrics-server is already installed. Skipping installation...\n")
 		}
 	}
 })
@@ -275,4 +286,30 @@ func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
 	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
 	output, err := utils.Run(execCmd)
 	return output, err
+}
+
+// installMetricsServer installs the Kubernetes Metrics Server and patches it for Kind compatibility.
+func installMetricsServer() error {
+	By("installing metrics-server")
+	url := "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.6.4/components.yaml"
+	cmd := exec.Command("kubectl", "apply", "-f", url)
+	if _, err := utils.Run(cmd); err != nil {
+		return fmt.Errorf("failed to apply metrics-server manifest: %w", err)
+	}
+
+	// Patch metrics-server to run securely on Kind (insecure-tls required for Kind's self-signed certs)
+	patch := `[
+	{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"},
+	{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-preferred-address-types=InternalIP"}
+	]`
+	cmd = exec.Command("kubectl", "patch", "deployment", "metrics-server",
+		"-n", "kube-system", "--type=json", "-p", patch)
+
+	if _, err := utils.Run(cmd); err != nil {
+		return fmt.Errorf("failed to patch metrics-server for Kind: %w", err)
+	}
+
+	cmd = exec.Command("kubectl", "wait", "deployment", "metrics-server", "-n", "kube-system", "--for=condition=Available", "--timeout=5m")
+	_, err := utils.Run(cmd)
+	return err
 }
