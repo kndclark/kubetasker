@@ -154,6 +154,12 @@ async def process_single_ktask(ktask):
                 update_submission_status(ktask.metadata.name, "Failed", "Kubernetes API unavailable")
                 break
         except Exception as e:
+            # Avoid retrying on 409 Conflict (resource already exists)
+            if isinstance(e, ApiException) and e.status == 409:
+                log.warning(f"Ktask '{ktask.metadata.name}' already exists. Skipping.")
+                update_submission_status(ktask.metadata.name, "Failed", "Ktask already exists")
+                break
+
             if attempt == max_retries:
                 err_msg = f"Failed after {max_retries} attempts: {e}"
                 log.error(f"Error processing buffered Ktask '{ktask.metadata.name}': {err_msg}")
