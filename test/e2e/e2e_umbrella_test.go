@@ -184,7 +184,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
+					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
@@ -204,6 +204,118 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 						g.Expect(output).To(Equal("Succeeded"), "Ktask phase should be Succeeded")
 					}).WithTimeout(1 * time.Minute).Should(Succeed())
 				})
+
+				// Define HPA load test scenarios
+				hpaScenarios := []struct {
+					name   string
+					genCmd func(baseUrl string) string
+				}{
+					{
+						name: "Healthz GET",
+						genCmd: func(baseUrl string) string {
+							return fmt.Sprintf("while true; do curl -s %s/healthz > /dev/null; done", baseUrl)
+						},
+					},
+					{
+						name: "Queue POST",
+						genCmd: func(baseUrl string) string {
+							// Payload for stress testing. Using a fixed name means subsequent requests might fail in the worker (409),
+							// but the frontend queue logic (202 Accepted) is still exercised.
+							jsonPayload := fmt.Sprintf(`{"apiVersion":"task.ktasker.com/v1","kind":"Ktask","metadata":{"name":"stress-%s","namespace":"%s"},"spec":{"image":"busybox","command":["echo","stress"]}}`, "hpa", tt.namespace)
+							return fmt.Sprintf("while true; do curl -s -X POST -H 'Content-Type: application/json' -d '%s' %s/ktask > /dev/null; done", jsonPayload, baseUrl)
+						},
+					},
+				}
+
+				for _, sc := range hpaScenarios {
+					sc := sc
+					It(fmt.Sprintf("should scale the frontend deployment when under load (HPA) - %s", sc.name), func() {
+						// Note: This test relies on the metrics-server being installed in the cluster.
+						// If metrics-server is missing, HPA will not be able to retrieve metrics, and this test will time out.
+
+						safeName := strings.ReplaceAll(strings.ToLower(sc.name), " ", "-")
+						hpaName := "frontend-hpa-" + safeName
+						targetDeployment := tt.frontendServiceName // fullnameOverride used as deployment name
+						minReplicas := 1
+						maxReplicas := 3
+						if os.Getenv("CI") == "true" {
+							By("CI environment detected, limiting HPA maxReplicas to 2")
+							maxReplicas = 2
+						}
+						cpuTarget := 5 // Low CPU target to trigger scaling easily
+
+						By("creating the HPA resource")
+						hpaYAML := fmt.Sprintf(`
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: %s
+  minReplicas: %d
+  maxReplicas: %d
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: %d
+`, hpaName, tt.namespace, targetDeployment, minReplicas, maxReplicas, cpuTarget)
+
+						cmd := exec.Command("kubectl", "apply", "-f", "-")
+						cmd.Stdin = strings.NewReader(hpaYAML)
+						_, err := utils.Run(cmd)
+						Expect(err).NotTo(HaveOccurred())
+
+						By("starting a load generator")
+						loadGenName := "load-generator-" + safeName
+						baseUrl := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000", tt.frontendServiceName, tt.namespace)
+
+						// Run a pod that continuously hits the target endpoint
+						cmd = exec.Command("kubectl", "run", loadGenName, "--image=curlimages/curl:latest",
+							"--namespace", tt.namespace, "--restart=Never", "--", "/bin/sh", "-c",
+							sc.genCmd(baseUrl))
+						_, err = utils.Run(cmd)
+						Expect(err).NotTo(HaveOccurred())
+
+						By("verifying that the frontend can still buffer requests under load")
+						// We submit a request while the load generator is running to ensure the async event loop isn't blocked
+						// and the buffering logic still responds with 202 Accepted.
+						verifyName := "verify-" + safeName
+						loadKtaskJSON := fmt.Sprintf(`{"apiVersion":"task.ktasker.com/v1","kind":"Ktask","metadata":{"name":"%s","namespace":"%s"},"spec":{"image":"busybox","command":["echo","load"]}}`, verifyName, tt.namespace)
+						posterPodName := "curl-poster-" + verifyName
+						shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}", loadKtaskJSON, tt.frontendServiceName, tt.namespace)
+						output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend should accept requests even under load")
+
+						By("verifying the buffered request is processed by the worker")
+						Eventually(func(g Gomega) {
+							cmd := exec.Command("kubectl", "get", "ktask", verifyName, "-n", tt.namespace)
+							_, err := utils.Run(cmd)
+							g.Expect(err).NotTo(HaveOccurred(), "Ktask %s should be created by the worker", verifyName)
+						}, 2*time.Minute, 1*time.Second).Should(Succeed())
+
+						By("waiting for the frontend deployment to scale up")
+						Eventually(func(g Gomega) {
+							cmd := exec.Command("kubectl", "get", "deployment", targetDeployment, "-n", tt.namespace, "-o", "jsonpath={.status.replicas}")
+							output, err := utils.Run(cmd)
+							g.Expect(err).NotTo(HaveOccurred())
+							// Expect replicas to increase beyond 1
+							g.Expect(output).NotTo(Equal("1"))
+							g.Expect(output).NotTo(Equal("0"))
+						}, 5*time.Minute, 5*time.Second).Should(Succeed(), "Frontend deployment failed to scale up under load")
+
+						// Cleanup HPA and load generator
+						_ = exec.Command("kubectl", "delete", "hpa", hpaName, "-n", tt.namespace).Run()
+						_ = exec.Command("kubectl", "delete", "pod", loadGenName, "-n", tt.namespace, "--force", "--grace-period=0").Run()
+					})
+				}
 			}
 		})
 	}
