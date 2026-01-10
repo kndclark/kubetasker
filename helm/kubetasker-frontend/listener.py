@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field, field_validator
 import logging
 import json
 import os
+import threading
+import asyncio
 from typing import List, Optional
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
@@ -105,14 +107,75 @@ def get_k8s_api():
     custom_objects_api = client.CustomObjectsApi()
     return custom_objects_api
 
+ktask_queue = asyncio.Queue(maxsize=1000)
+
+# In-memory store for request statuses to handle async feedback
+submission_status = {}
+status_lock = threading.Lock()
+MAX_STATUS_HISTORY = 1000
+
+def update_submission_status(name: str, status: str, message: str = None):
+    """Updates the in-memory status of a Ktask submission."""
+    with status_lock:
+        # Simple LRU-like eviction: remove oldest if full
+        if len(submission_status) >= MAX_STATUS_HISTORY and name not in submission_status:
+            submission_status.pop(next(iter(submission_status)))
+        submission_status[name] = {"phase": status, "message": message}
+
+def get_submission_status(name: str):
+    """Retrieves the in-memory status of a Ktask submission."""
+    with status_lock:
+        return submission_status.get(name)
+
+async def process_single_ktask(ktask):
+    """Processes a single Ktask with retry logic."""
+    loop = asyncio.get_running_loop()
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            api = get_k8s_api()
+            if api:
+                # Run blocking K8s call in thread pool
+                await loop.run_in_executor(
+                    None,
+                    lambda: api.create_namespaced_custom_object(
+                        group="task.ktasker.com",
+                        version="v1",
+                        namespace=ktask.metadata.namespace,
+                        plural="ktasks",
+                        body=ktask.model_dump(by_alias=True, exclude_none=True),
+                    )
+                )
+                log.info(f"Async created Ktask '{ktask.metadata.name}'")
+                update_submission_status(ktask.metadata.name, "Created", "Successfully submitted to Kubernetes")
+                break
+            else:
+                log.error(f"K8s API unavailable, dropping Ktask '{ktask.metadata.name}'")
+                update_submission_status(ktask.metadata.name, "Failed", "Kubernetes API unavailable")
+                break
+        except Exception as e:
+            if attempt == max_retries:
+                err_msg = f"Failed after {max_retries} attempts: {e}"
+                log.error(f"Error processing buffered Ktask '{ktask.metadata.name}': {err_msg}")
+                update_submission_status(ktask.metadata.name, "Failed", err_msg)
+            else:
+                log.warning(f"Error processing Ktask '{ktask.metadata.name}' (attempt {attempt}/{max_retries}): {e}. Retrying...")
+                await asyncio.sleep(1 * attempt)
+
+async def process_ktasks():
+    """Background worker to process buffered Ktask creation requests."""
+    log.info("Starting Ktask processing worker")
+    while True:
+        ktask = await ktask_queue.get()
+        await process_single_ktask(ktask)
+        ktask_queue.task_done()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # This is the modern way to handle startup logic.
-    # We can pre-warm the Kubernetes client on startup if we want,
-    # or just let it initialize on the first request.
     get_k8s_api() # Optional: pre-warm the client at startup
+    task = asyncio.create_task(process_ktasks())
     yield
-    # Clean up resources if needed on shutdown
+    task.cancel()
     log.info("Shutting down.")
 
 app = FastAPI(lifespan=lifespan)
@@ -126,33 +189,17 @@ def health_check():
     return {"status": "ok"}
 
 # Create a new Ktask custom resource.
-@app.post("/ktask")
-def create_ktask(
+@app.post("/ktask", status_code=202)
+async def create_ktask(
     ktask: KtaskPayload,
-    api: client.CustomObjectsApi = Depends(get_k8s_api)
 ):
     '''
-    Accept POST /ktask to create a new Ktask CRD.
+    Accept POST /ktask to queue a new Ktask CRD creation.
     '''
-    if api is None:
-        raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
-    log.info(f"Received request to create Ktask '{ktask.metadata.name}' in namespace '{ktask.metadata.namespace}'")
-    try:
-        # Convert the Pydantic model back to a dict for the k8s client.
-        # `by_alias=True` ensures fields like `restartPolicy` use their correct names.
-        ktask_dict = ktask.model_dump(by_alias=True, exclude_none=True)
-        api_response = api.create_namespaced_custom_object(
-            group="task.ktasker.com",
-            version="v1",
-            namespace=ktask.metadata.namespace,
-            plural="ktasks",
-            body=ktask_dict,
-        )
-        log.info(f"Successfully created Ktask '{ktask.metadata.name}'")
-        return {"message": "Ktask submitted", "ktask": api_response}
-    except ApiException as e:
-        log.error(f"Failed to create Ktask '{ktask.metadata.name}'", exc_info=True)
-        raise HTTPException(status_code=e.status, detail={"error": "Failed to create Ktask", "details": e.reason, "body": json.loads(e.body)})
+    log.info(f"Buffering request to create Ktask '{ktask.metadata.name}' in namespace '{ktask.metadata.namespace}'")
+    update_submission_status(ktask.metadata.name, "Pending", "Request buffered in queue")
+    await ktask_queue.put(ktask)
+    return {"message": "Ktask buffered", "ktask_name": ktask.metadata.name}
 
 # List/query job statuses.
 @app.get("/ktask")
@@ -202,6 +249,19 @@ def get_ktask(
         return api_response
     except ApiException as e:
         if e.status == 404:
+            # Check in-memory status for async failures or pending state
+            local_status = get_submission_status(job_name)
+            if local_status:
+                return {
+                    "apiVersion": "task.ktasker.com/v1",
+                    "kind": "Ktask",
+                    "metadata": {"name": job_name, "namespace": namespace},
+                    "status": {
+                        "phase": local_status["phase"],
+                        "message": local_status["message"],
+                        "reason": "AsyncSubmissionStatus" 
+                    }
+                }
             log.warning(f"Ktask '{job_name}' not found in namespace '{namespace}'")
             raise HTTPException(status_code=404, detail=f"Ktask '{job_name}' not found in namespace '{namespace}'.")
         log.error(f"Failed to retrieve Ktask '{job_name}'", exc_info=True)

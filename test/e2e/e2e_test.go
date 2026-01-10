@@ -351,7 +351,14 @@ var _ = Describe("Manager", Ordered, func() {
 				ktaskJSON, frontendServiceName, namespace)
 			output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
+			Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
+
+			By("verifying the Ktask is created asynchronously")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName, "-n", namespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Ktask should be created by the frontend worker")
+			}, "1m", "1s").Should(Succeed())
 
 			By("verifying the underlying Job is created and completes successfully")
 			verifyJobSucceeded := func(g Gomega) {
@@ -363,6 +370,15 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			// Give it enough time for the controller to reconcile and the job to run.
 			Eventually(verifyJobSucceeded, "2m").Should(Succeed())
+
+			By("verifying the Ktask can be retrieved via the frontend GET endpoint")
+			getterPodName := "curl-getter"
+			curlCmd := fmt.Sprintf("curl -s http://%s.%s.svc.cluster.local:8000/ktask/%s?namespace=%s",
+				frontendServiceName, namespace, ktaskName, namespace)
+			output, err = runInCurlPod(getterPodName, namespace, curlCmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(ktaskName))
+			Expect(output).To(ContainSubstring("Succeeded"))
 
 			// Cleanup the Ktask
 			cmd := exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace, "--ignore-not-found")

@@ -184,7 +184,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("200"), "Frontend service should return 200 OK")
+					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
