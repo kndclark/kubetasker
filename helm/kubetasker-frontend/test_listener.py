@@ -378,94 +378,65 @@ def test_api_unavailable_when_k8s_client_fails(method, url):
     app.dependency_overrides.clear()
 
 @pytest.mark.asyncio
-async def test_worker_retries_and_failure(setup_app_and_mock_k8s_client):
+@pytest.mark.parametrize(
+    "api_status, api_reason, expected_call_count, expected_sleep_count, expected_phase, expected_message_part",
+    [
+        pytest.param(None, None, 1, 0, "Created", "Successfully submitted", id="success"),
+        pytest.param(500, "Internal Error", 3, 2, "Failed", "Failed after 3 attempts", id="retry_failure"),
+        pytest.param(409, "Conflict", 1, 0, "Failed", "Ktask already exists", id="conflict_no_retry"),
+        pytest.param("API_UNAVAILABLE", None, 0, 0, "Failed", "Kubernetes API unavailable", id="api_client_init_failure"),
+        pytest.param(422, "Unprocessable Entity", 3, 2, "Failed", "Failed after 3 attempts", id="unprocessable_entity_retry"),
+    ]
+)
+async def test_worker_processing_logic(
+    setup_app_and_mock_k8s_client,
+    api_status,
+    api_reason,
+    expected_call_count,
+    expected_sleep_count,
+    expected_phase,
+    expected_message_part
+):
     """
-    Tests that the worker retries on failure and eventually marks the task as Failed.
+    Tests the worker processing logic including success, retries, and conflict handling.
     """
     mock_k8s, _, create_api_exception, listener_module = setup_app_and_mock_k8s_client
     
+    job_name = "test-job"
     payload_dict = {
         "apiVersion": "task.ktasker.com/v1",
         "kind": "Ktask",
-        "metadata": {"name": "retry-job", "namespace": "default"},
+        "metadata": {"name": job_name, "namespace": "default"},
         "spec": {"image": "busybox"}
     }
     ktask = listener_module.KtaskPayload(**payload_dict)
     
-    # Configure mock to raise exception
-    side_effect = create_api_exception(status=500, reason="Internal Error", body_dict={})
-    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
-    
-    # Patch asyncio.sleep to speed up the test
+    # Configure mock behavior
+    if api_status != "API_UNAVAILABLE":
+        if api_status:
+            side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict={})
+            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
+        else:
+            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = payload_dict
+            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = None
+
+    # Patch asyncio.sleep to speed up the test and verify sleep calls
     with patch("asyncio.sleep", return_value=None) as mock_sleep:
-        await listener_module.process_single_ktask(ktask)
+        if api_status == "API_UNAVAILABLE":
+            # Simulate get_k8s_api returning None by patching it in the listener module
+            with patch.object(listener_module, "get_k8s_api", return_value=None):
+                await listener_module.process_single_ktask(ktask)
+        else:
+            await listener_module.process_single_ktask(ktask)
         
-        # Verify retries occurred (max_retries=3, so 3 calls)
-        assert mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.call_count == 3
-        assert mock_sleep.call_count == 2
-        
-        # Verify status is Failed
-        status = listener_module.get_submission_status("retry-job")
-        assert status["phase"] == "Failed"
-        assert "Failed after 3 attempts" in status["message"]
-
-@pytest.mark.asyncio
-async def test_worker_success(setup_app_and_mock_k8s_client):
-    """
-    Tests that the worker handles success correctly.
-    """
-    mock_k8s, _, _, listener_module = setup_app_and_mock_k8s_client
-    
-    payload_dict = {
-        "apiVersion": "task.ktasker.com/v1",
-        "kind": "Ktask",
-        "metadata": {"name": "success-job", "namespace": "default"},
-        "spec": {"image": "busybox"}
-    }
-    ktask = listener_module.KtaskPayload(**payload_dict)
-    
-    # Configure mock to succeed
-    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = payload_dict
-    
-    await listener_module.process_single_ktask(ktask)
-    
-    # Verify call
-    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_called_once()
-    
-    # Verify status
-    status = listener_module.get_submission_status("success-job")
-    assert status["phase"] == "Created"
-
-@pytest.mark.asyncio
-async def test_worker_no_retry_on_conflict(setup_app_and_mock_k8s_client):
-    """
-    Tests that the worker does not retry on 409 Conflict errors.
-    """
-    mock_k8s, _, create_api_exception, listener_module = setup_app_and_mock_k8s_client
-    
-    payload_dict = {
-        "apiVersion": "task.ktasker.com/v1",
-        "kind": "Ktask",
-        "metadata": {"name": "conflict-job", "namespace": "default"},
-        "spec": {"image": "busybox"}
-    }
-    ktask = listener_module.KtaskPayload(**payload_dict)
-    
-    # Configure mock to raise 409 Conflict
-    side_effect = create_api_exception(status=409, reason="Conflict", body_dict={})
-    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
-    
-    # Patch asyncio.sleep to ensure we fail if it tries to sleep (retry)
-    with patch("asyncio.sleep", side_effect=Exception("Should not sleep")) as mock_sleep:
-        await listener_module.process_single_ktask(ktask)
-        
-        # Verify called only once
-        assert mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.call_count == 1
+        # Verify calls
+        assert mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.call_count == expected_call_count
+        assert mock_sleep.call_count == expected_sleep_count
         
         # Verify status is Failed
-        status = listener_module.get_submission_status("conflict-job")
-        assert status["phase"] == "Failed"
-        assert "Ktask already exists" in status["message"]
+        status = listener_module.get_submission_status(job_name)
+        assert status["phase"] == expected_phase
+        assert expected_message_part in status["message"]
 
 def _raise_exception(exc):
     """Helper function to raise an exception within a lambda."""
