@@ -109,7 +109,7 @@ jobs:
           helm dependency build helm/kubetasker
 
           helm upgrade --install kubetasker helm/kubetasker \
-            --namespace kubetasker-system \
+            --namespace kubetasker \
             --create-namespace \
             --set kubetasker-controller.image.repository=${{ secrets.DOCKER_USERNAME }}/kubetasker-controller \
             --set kubetasker-controller.image.tag=${{ github.sha }} \
@@ -119,5 +119,5 @@ jobs:
 
       - name: Smoke test
         run: |
-          kubectl get pods -n kubetasker-system
-          kubectl get svc -n kubetasker-system
+          kubectl get pods -n kubetasker
+          kubectl get svc -n kubetasker
