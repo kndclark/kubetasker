@@ -119,6 +119,7 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 									},
 								},
 							},
+							Resources: ktask.Spec.Resources,
 						},
 					},
 					RestartPolicy: corev1.RestartPolicy(ktask.Spec.RestartPolicy),

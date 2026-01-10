@@ -660,6 +660,55 @@ spec:
 			// Check for the specific error message from the webhook.
 			Expect(output).To(ContainSubstring("admission webhook \"single-vktask.kb.io\" denied the request"), "The webhook rejection message was not found in the output.")
 		})
+
+		It("should propagate resource requests to the underlying Job", func() {
+			const ktaskName = "test-ktask-resources"
+			const jobName = ktaskName + "-job"
+			const ktaskYAML = `
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'Resource test'"]
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+`
+			By("creating a Ktask with specific resource requirements")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the underlying Job has the correct resources")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobName,
+					"-n", namespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var resources struct {
+					Limits   map[string]string `json:"limits"`
+					Requests map[string]string `json:"requests"`
+				}
+				g.Expect(json.Unmarshal([]byte(output), &resources)).To(Succeed())
+
+				g.Expect(resources.Requests["cpu"]).To(Equal("50m"))
+				g.Expect(resources.Requests["memory"]).To(Equal("64Mi"))
+				g.Expect(resources.Limits["cpu"]).To(Equal("100m"))
+				g.Expect(resources.Limits["memory"]).To(Equal("128Mi"))
+			}, "1m", "1s").Should(Succeed())
+
+			// Cleanup
+			_ = exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace).Run()
+		})
 	})
 })
 
