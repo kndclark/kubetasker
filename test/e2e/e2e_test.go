@@ -354,7 +354,17 @@ var _ = Describe("Manager", Ordered, func() {
 				},
 				"spec": {
 					"image": "busybox",
-					"command": ["/bin/sh", "-c", "echo 'Hello from frontend test'; exit 0"]
+					"command": ["/bin/sh", "-c", "echo 'Hello from frontend test'; exit 0"],
+					"resources": {
+						"requests": {
+							"cpu": "10m",
+							"memory": "32Mi"
+						},
+						"limits": {
+							"cpu": "50m",
+							"memory": "64Mi"
+						}
+					}
 				}
 			}`, ktaskName, namespace)
 
@@ -390,6 +400,25 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			// Give it enough time for the controller to reconcile and the job to run.
 			Eventually(verifyJobSucceeded, "2m").Should(Succeed())
+
+			By("verifying the underlying Job has the correct resources")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "job", jobName,
+					"-n", namespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var resources struct {
+					Limits   map[string]string `json:"limits"`
+					Requests map[string]string `json:"requests"`
+				}
+				g.Expect(json.Unmarshal([]byte(output), &resources)).To(Succeed())
+
+				g.Expect(resources.Requests["cpu"]).To(Equal("10m"))
+				g.Expect(resources.Requests["memory"]).To(Equal("32Mi"))
+				g.Expect(resources.Limits["cpu"]).To(Equal("50m"))
+				g.Expect(resources.Limits["memory"]).To(Equal("64Mi"))
+			}, "1m", "1s").Should(Succeed())
 
 			By("verifying the Ktask can be retrieved via the frontend GET endpoint")
 			getterPodName := "curl-getter"
@@ -708,6 +737,68 @@ spec:
 
 			// Cleanup
 			_ = exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace).Run()
+		})
+
+		It("should apply global default resources when none are specified", func() {
+			const ktaskName = "test-ktask-defaults"
+			const jobName = ktaskName + "-job"
+			const ktaskYAML = `
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "echo 'Defaults test'"]
+`
+			By("creating a Ktask without resource requirements")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the underlying Job has the default resources")
+			// We expect the defaults defined in values.yaml (100m/128Mi)
+			expectedDefaults := map[string]string{"requests.cpu": "100m", "requests.memory": "128Mi", "limits.cpu": "100m", "limits.memory": "128Mi"}
+			verifyResources(namespace, fmt.Sprintf("job-name=%s", jobName), expectedDefaults)
+
+			// Cleanup
+			_ = exec.Command("kubectl", "delete", "ktask", ktaskName, "-n", namespace).Run()
+		})
+
+		It("should detect and report OOMKilled failure", func() {
+			const ktaskName = "test-ktask-oom"
+			const ktaskYAML = `
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  # Exponential string concatenation to consume memory rapidly
+  command: ["/bin/sh", "-c", "x='x'; while true; do x=$x$x; done"]
+  resources:
+    limits:
+      memory: "10Mi"
+    requests:
+      memory: "10Mi"
+`
+			By("creating a Ktask destined to OOMKill")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the Ktask to fail with OOMKilled message")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName,
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='JobReady')].message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("OOMKilled"))
+			}, 3*time.Minute).Should(Succeed())
 		})
 	})
 })

@@ -262,6 +262,23 @@ func (r *KtaskReconciler) checkPodFailures(ctx context.Context, ktask *customv1.
 					return true, nil // Status updated, stop further reconciliation
 				}
 			}
+			// Check for OOMKilled in Terminated state or LastTerminationState
+			// This ensures we catch the failure even if the pod has already restarted (CrashLoopBackOff)
+			if (containerStatus.State.Terminated != nil && containerStatus.State.Terminated.Reason == "OOMKilled") ||
+				(containerStatus.LastTerminationState.Terminated != nil && containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled") {
+				log.Info("Detected OOMKilled pod failure")
+				ktask.Status.Phase = customv1.PhaseFailed
+				meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{
+					Type:    customv1.JobReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  customv1.ReasonPermanentFailure,
+					Message: "Job failed due to OOMKilled (Out of Memory).",
+				})
+				if err := r.Status().Update(ctx, ktask); err != nil {
+					return false, err
+				}
+				return true, nil // Status updated, stop further reconciliation
+			}
 		}
 	}
 	return false, nil
