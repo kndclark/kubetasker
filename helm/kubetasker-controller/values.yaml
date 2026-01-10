@@ -168,3 +168,12 @@ certManager:
 # webhookPrefix is used to create unique webhook names for parallel test runs.
 # For example, setting it to "umbrella-" results in "umbrella-mktask.kb.io".
 webhookPrefix: ""
+
+# Default resources for the task execution Jobs if not specified in the Ktask
+jobDefaultResources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

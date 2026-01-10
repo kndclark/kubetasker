@@ -37,7 +37,8 @@ import (
 // KtaskReconciler reconciles a Ktask object
 type KtaskReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	DefaultResources corev1.ResourceRequirements
 }
 
 // +kubebuilder:rbac:groups=task.ktasker.com,resources=ktasks,verbs=get;list;watch;create;update;patch;delete
@@ -88,6 +89,11 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 3. If the Job does not exist, and the Ktask is not in a terminal state, create it.
 	// Define the new Job from the Ktask's spec
+	jobResources := ktask.Spec.Resources
+	if len(jobResources.Limits) == 0 && len(jobResources.Requests) == 0 {
+		jobResources = r.DefaultResources
+	}
+
 	newJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -119,7 +125,7 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 									},
 								},
 							},
-							Resources: ktask.Spec.Resources,
+							Resources: jobResources,
 						},
 					},
 					RestartPolicy: corev1.RestartPolicy(ktask.Spec.RestartPolicy),
