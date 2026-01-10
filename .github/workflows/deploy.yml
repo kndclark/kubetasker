@@ -69,9 +69,10 @@ jobs:
           helm template helm/kubetasker | kubeconform -strict -ignore-missing-schemas -summary
 
   deploy:
-    name: Deploy to Cluster
+    name: Deploy to Ephemeral kind Cluster
     needs: [build-and-push, validate-manifests]
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,23 +80,44 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: Set up Kubectl
+      - name: Set up kubectl
         uses: azure/setup-kubectl@v4
 
-      - name: Deploy to Cluster
-        env:
-          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
-        run: |
-          mkdir -p ~/.kube
-          echo "$KUBECONFIG_CONTENT" > ~/.kube/config
-          chmod 600 ~/.kube/config
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: kubetasker-ci
+          wait: 120s
 
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Load images into kind
+        run: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/kubetasker-controller:${{ github.sha }}
+          docker pull ${{ secrets.DOCKER_USERNAME }}/kubetasker-frontend:${{ github.sha }}
+
+          kind load docker-image \
+            ${{ secrets.DOCKER_USERNAME }}/kubetasker-controller:${{ github.sha }} \
+            ${{ secrets.DOCKER_USERNAME }}/kubetasker-frontend:${{ github.sha }} \
+            --name kubetasker-ci
+
+      - name: Deploy with Helm
+        run: |
           helm dependency build helm/kubetasker
 
           helm upgrade --install kubetasker helm/kubetasker \
-            --namespace kubetasker --create-namespace \
+            --namespace kubetasker-system \
+            --create-namespace \
             --set kubetasker-controller.image.repository=${{ secrets.DOCKER_USERNAME }}/kubetasker-controller \
             --set kubetasker-controller.image.tag=${{ github.sha }} \
             --set kubetasker-frontend.image.repository=${{ secrets.DOCKER_USERNAME }}/kubetasker-frontend \
             --set kubetasker-frontend.image.tag=${{ github.sha }} \
             --wait --timeout 5m
+
+      - name: Smoke test
+        run: |
+          kubectl get pods -n kubetasker-system
+          kubectl get svc -n kubetasker-system
