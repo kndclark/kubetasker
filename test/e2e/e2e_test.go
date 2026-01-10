@@ -181,6 +181,26 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(output).To(Equal("Running"), "Incorrect controller-manager pod status")
 		})
 
+		It("should have the correct default resource settings", func() {
+			By("verifying frontend default resource settings")
+			expectedFrontend := map[string]string{
+				"requests.cpu":    "100m",
+				"requests.memory": "128Mi",
+				"limits.cpu":      "100m",
+				"limits.memory":   "128Mi",
+			}
+			verifyResources(namespace, "app.kubernetes.io/name=kubetasker-frontend", expectedFrontend)
+
+			By("verifying controller default resource settings")
+			expectedController := map[string]string{
+				"requests.cpu":    "100m",
+				"requests.memory": "128Mi",
+				"limits.cpu":      "100m",
+				"limits.memory":   "128Mi",
+			}
+			verifyResources(namespace, "control-plane=controller-manager", expectedController)
+		})
+
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			var cmd *exec.Cmd
 			var err error
