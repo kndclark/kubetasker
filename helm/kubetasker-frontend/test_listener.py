@@ -405,7 +405,7 @@ def test_api_unavailable_when_k8s_client_fails(method, url):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "api_status, api_reason, expected_call_count, expected_sleep_count, expected_phase, i",
+    "api_status, api_reason, expected_call_count, expected_sleep_count, expected_phase, expected_message_part",
     [
         pytest.param(None, None, 1, 0, "Created", "Successfully submitted", id="success"),
         pytest.param(500, "Internal Error", 3, 2, "Failed", "Failed after 3 attempts", id="retry_failure"),
