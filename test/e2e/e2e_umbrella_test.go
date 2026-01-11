@@ -181,6 +181,17 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 			// Only run the functional test for the 'dev' environment to avoid redundancy.
 			if tt.environment == "dev" {
+				It("should serve the GUI dashboard", func() {
+					By("verifying the frontend GUI is accessible")
+					verifyFrontendGUI := func(g Gomega) {
+						curlCmd := fmt.Sprintf("curl -s http://%s.%s.svc.cluster.local:8000/", tt.frontendServiceName, tt.namespace)
+						output, err := runInCurlPod("curl-gui-check-umbrella", tt.namespace, curlCmd)
+						g.Expect(err).NotTo(HaveOccurred())
+						g.Expect(output).To(ContainSubstring("<title>KubeTasker Dashboard</title>"))
+					}
+					Eventually(verifyFrontendGUI, "2m").Should(Succeed())
+				})
+
 				It("should create a Ktask via the frontend and see the corresponding Job succeed", func() {
 					const ktaskName = "test-ktask-via-umbrella"
 					const jobName = ktaskName + "-job"

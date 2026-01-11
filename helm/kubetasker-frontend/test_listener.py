@@ -464,6 +464,22 @@ async def test_worker_processing_logic(
         assert status["phase"] == expected_phase
         assert expected_message_part in status["message"]
 
+def test_get_gui(setup_app_and_mock_k8s_client):
+    """Tests that the GUI endpoint returns HTML."""
+    _, client, _, _ = setup_app_and_mock_k8s_client
+    
+    # Mock opening the index.html file
+    mock_html = "<html><head><title>KubeTasker Dashboard</title></head><body></body></html>"
+    with patch("builtins.open", new_callable=MagicMock) as mock_file:
+        # Configure the mock to return a file object whose read() returns our HTML
+        mock_file.return_value.__enter__.return_value.read.return_value = mock_html
+        
+        response = client.get("/")
+        
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "<title>KubeTasker Dashboard</title>" in response.text
+
 def _raise_exception(exc):
     """Helper function to raise an exception within a lambda."""
     raise exc

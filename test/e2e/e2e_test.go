@@ -341,6 +341,17 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyFrontendHealth, "2m").Should(Succeed())
 		})
 
+		It("should serve the GUI dashboard", func() {
+			By("verifying the frontend GUI is accessible")
+			verifyFrontendGUI := func(g Gomega) {
+				curlCmd := fmt.Sprintf("curl -s http://%s.%s.svc.cluster.local:8000/", frontendServiceName, namespace)
+				output, err := runInCurlPod("curl-gui-check", namespace, curlCmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("<title>KubeTasker Dashboard</title>"))
+			}
+			Eventually(verifyFrontendGUI, "2m").Should(Succeed())
+		})
+
 		It("should create a Ktask via the frontend API and see it succeed", func() {
 			const ktaskName = "test-ktask-via-frontend"
 			const jobName = ktaskName + "-job"
