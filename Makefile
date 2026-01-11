@@ -228,6 +228,12 @@ run-frontend-local: ## Build and run the frontend API container locally for deve
 	-$(CONTAINER_TOOL) rm $(FRONTEND) > /dev/null 2>&1 || true
 	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) --name $(FRONTEND) $(FRONTEND):latest
 
+.PHONY: run-frontend-dev
+run-frontend-dev: ## Run the frontend service locally using uvicorn (requires 'make pyenv' first)
+	export KUBETASKER_ENV=development && \
+	cd $(CHART_ROOT)/$(FRONTEND) && \
+	$(CURDIR)/$(PYVENV)/bin/uvicorn listener:app --reload --port $(FRONTEND_PORT)
+
 .PHONY: docker-clean-frontend
 docker-clean-frontend: ## Stop and remove the running frontend container and its images.
 	-$(CONTAINER_TOOL) stop $(FRONTEND) > /dev/null 2>&1 || true

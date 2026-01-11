@@ -1,5 +1,6 @@
 
 from fastapi import FastAPI, HTTPException, Response, Depends
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 import logging
 import json
@@ -186,6 +187,13 @@ async def lifespan(app: FastAPI):
     log.info("Shutting down.")
 
 app = FastAPI(lifespan=lifespan)
+
+# Serve the GUI
+@app.get("/", response_class=HTMLResponse)
+async def get_gui():
+    """Serves the KubeTasker Dashboard."""
+    with open(os.path.join(os.path.dirname(__file__), "static/index.html")) as f:
+        return f.read()
 
 # Allow external systems to check if app is running/ working
 @app.get("/healthz")
