@@ -54,6 +54,10 @@ type KtaskSpec struct {
 	// ServiceAccountName is the name of the ServiceAccount to use to run this job.
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Resources describes the compute resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // Define the valid phases for a Ktask

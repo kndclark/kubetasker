@@ -114,11 +114,11 @@ resources:
   # Default resources from Kubebuilder.
   # It's recommended to adjust these based on your controller's needs.
   limits:
-    cpu: 500m
+    cpu: 100m
     memory: 128Mi
   requests:
-    cpu: 10m
-    memory: 64Mi
+    cpu: 100m
+    memory: 128Mi
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 livenessProbe:
@@ -168,3 +168,12 @@ certManager:
 # webhookPrefix is used to create unique webhook names for parallel test runs.
 # For example, setting it to "umbrella-" results in "umbrella-mktask.kb.io".
 webhookPrefix: ""
+
+# Default resources for the task execution Jobs if not specified in the Ktask
+jobDefaultResources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

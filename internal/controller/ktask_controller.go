@@ -37,7 +37,8 @@ import (
 // KtaskReconciler reconciles a Ktask object
 type KtaskReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	DefaultResources corev1.ResourceRequirements
 }
 
 // +kubebuilder:rbac:groups=task.ktasker.com,resources=ktasks,verbs=get;list;watch;create;update;patch;delete
@@ -88,6 +89,11 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 3. If the Job does not exist, and the Ktask is not in a terminal state, create it.
 	// Define the new Job from the Ktask's spec
+	jobResources := ktask.Spec.Resources
+	if len(jobResources.Limits) == 0 && len(jobResources.Requests) == 0 {
+		jobResources = r.DefaultResources
+	}
+
 	newJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -119,6 +125,7 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 									},
 								},
 							},
+							Resources: jobResources,
 						},
 					},
 					RestartPolicy: corev1.RestartPolicy(ktask.Spec.RestartPolicy),
@@ -254,6 +261,23 @@ func (r *KtaskReconciler) checkPodFailures(ctx context.Context, ktask *customv1.
 					}
 					return true, nil // Status updated, stop further reconciliation
 				}
+			}
+			// Check for OOMKilled in Terminated state or LastTerminationState
+			// This ensures we catch the failure even if the pod has already restarted (CrashLoopBackOff)
+			if (containerStatus.State.Terminated != nil && containerStatus.State.Terminated.Reason == "OOMKilled") ||
+				(containerStatus.LastTerminationState.Terminated != nil && containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled") {
+				log.Info("Detected OOMKilled pod failure")
+				ktask.Status.Phase = customv1.PhaseFailed
+				meta.SetStatusCondition(&ktask.Status.Conditions, metav1.Condition{
+					Type:    customv1.JobReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  customv1.ReasonPermanentFailure,
+					Message: "Job failed due to OOMKilled (Out of Memory).",
+				})
+				if err := r.Status().Update(ctx, ktask); err != nil {
+					return false, err
+				}
+				return true, nil // Status updated, stop further reconciliation
 			}
 		}
 	}

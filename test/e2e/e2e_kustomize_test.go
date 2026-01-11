@@ -92,11 +92,28 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 
 				// If running in CI, override resource-intensive values to ensure tests can run.
 				if os.Getenv("CI") == "true" {
-					By("CI environment detected, overriding replica counts to 1 for manifest generation")
+					By("CI environment detected, overriding replica counts and resources for manifest generation")
+					// Use safe, low values for CI to prevent scheduling timeouts on limited runners
+					safeCPU := "100m"
+					safeMem := "128Mi"
+
 					helmTemplateCmd.Args = append(helmTemplateCmd.Args,
 						"--set", "kubetasker-controller.replicaCount=1",
 						"--set", "kubetasker-frontend.replicaCount=1",
+						"--set", "kubetasker-controller.resources.requests.cpu="+safeCPU,
+						"--set", "kubetasker-controller.resources.limits.cpu="+safeCPU,
+						"--set", "kubetasker-controller.resources.requests.memory="+safeMem,
+						"--set", "kubetasker-controller.resources.limits.memory="+safeMem,
+						"--set", "kubetasker-frontend.resources.requests.cpu="+safeCPU,
+						"--set", "kubetasker-frontend.resources.limits.cpu="+safeCPU,
+						"--set", "kubetasker-frontend.resources.requests.memory="+safeMem,
+						"--set", "kubetasker-frontend.resources.limits.memory="+safeMem,
 					)
+					// Update expectations to match the CI overrides
+					tt.expectedResources = map[string]map[string]string{
+						"controller": {"requests.cpu": safeCPU, "requests.memory": safeMem, "limits.cpu": safeCPU, "limits.memory": safeMem},
+						"frontend":   {"requests.cpu": safeCPU, "requests.memory": safeMem, "limits.cpu": safeCPU, "limits.memory": safeMem},
+					}
 				}
 
 				helmOutput, err := utils.Run(helmTemplateCmd)

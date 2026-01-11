@@ -121,6 +121,32 @@ def test_health_check(setup_app_and_mock_k8s_client):
             },
             id="full_payload_with_env"
         ),
+    pytest.param(
+        { # Payload with resources
+            "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+            "metadata": {"name": "test-resources", "namespace": "default"},
+            "spec": {
+                "image": "busybox",
+                "resources": {
+                    "requests": {"cpu": "100m", "memory": "128Mi"},
+                    "limits": {"cpu": "200m", "memory": "256Mi"}
+                }
+            },
+        },
+        { # Expected body
+            "apiVersion": "task.ktasker.com/v1", "kind": "Ktask",
+            "metadata": {"name": "test-resources", "namespace": "default"},
+            "spec": {
+                "image": "busybox",
+                "restartPolicy": "OnFailure",
+                "resources": {
+                    "requests": {"cpu": "100m", "memory": "128Mi"},
+                    "limits": {"cpu": "200m", "memory": "256Mi"}
+                }
+            },
+        },
+        id="payload_with_resources"
+    ),
     ]
 )
 def test_create_ktask_success(setup_app_and_mock_k8s_client, input_payload, expected_body):
