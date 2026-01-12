@@ -173,7 +173,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
 .PHONY: run-local
-run-local: manifests generate fmt vet ## Run a controller from your host with webhooks disabled.
+run-local: install generate fmt vet ## Run a controller from your host with webhooks disabled.
 	ENABLE_WEBHOOKS=false go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
@@ -223,6 +223,7 @@ run-frontend-local: ## Build and run the frontend API container locally for deve
 
 .PHONY: run-frontend-dev
 run-frontend-dev: ## Run the frontend service locally using uvicorn (requires 'make pyenv' first)
+	@if [ ! -d "$(PYVENV)" ]; then echo "Python venv not found. Please run 'make pyenv' first."; exit 1; fi
 	export KUBETASKER_ENV=development && \
 	cd $(CHART_ROOT)/$(FRONTEND) && \
 	$(CURDIR)/$(PYVENV)/bin/uvicorn listener:app --reload --port $(FRONTEND_PORT)
