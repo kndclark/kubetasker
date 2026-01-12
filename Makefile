@@ -173,7 +173,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
 .PHONY: run-local
-run-local: manifests generate fmt vet ## Run a controller from your host with webhooks disabled.
+run-local: install generate fmt vet ## Run a controller from your host with webhooks disabled.
 	ENABLE_WEBHOOKS=false go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
@@ -183,6 +183,7 @@ run-local: manifests generate fmt vet ## Run a controller from your host with we
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
+.PHONY: docker-clean
 docker-clean: ## stop and remove docker image completely
 	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(IMG)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) stop && \
 	$(CONTAINER_TOOL) ps -a --filter "ancestor=$(IMG)" --format "{{.Names}}" | xargs -r $(CONTAINER_TOOL) rm && \
@@ -191,11 +192,6 @@ docker-clean: ## stop and remove docker image completely
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
-
-.PHONY: docker-build-frontend-dev
-docker-build-frontend-dev: ## build frontend API container standalone (outside kubernetes, typically for dev)
-	$(CONTAINER_TOOL) build -t $(FRONTEND) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND) && \
-	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) $(FRONTEND)
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend API container image.
@@ -212,9 +208,6 @@ deploy-frontend: ## Deploy or update the frontend service in the current cluster
 	@echo "--- Restarting frontend deployment to apply image changes..."
 	$(KUBECTL) rollout restart deployment $(FRONTEND)
 
-.PHONY: update-cluster-frontend
-update-cluster-frontend: deploy-frontend
-
 .PHONY: docker-push-frontend
 docker-push-frontend: ## Push the frontend API container image.
 	$(CONTAINER_TOOL) push $(FRONTEND_IMG)
@@ -227,6 +220,34 @@ run-frontend-local: ## Build and run the frontend API container locally for deve
 	-$(CONTAINER_TOOL) stop $(FRONTEND) > /dev/null 2>&1 || true
 	-$(CONTAINER_TOOL) rm $(FRONTEND) > /dev/null 2>&1 || true
 	$(CONTAINER_TOOL) run -e KUBETASKER_ENV=development -d -p $(FRONTEND_PORT):$(FRONTEND_PORT) --name $(FRONTEND) $(FRONTEND):latest
+
+.PHONY: run-frontend-dev
+run-frontend-dev: ## Run the frontend service locally using uvicorn (requires 'make pyenv' first)
+	@if [ ! -d "$(PYVENV)" ]; then echo "Python venv not found. Please run 'make pyenv' first."; exit 1; fi
+	export KUBETASKER_ENV=development && \
+	cd $(CHART_ROOT)/$(FRONTEND) && \
+	$(CURDIR)/$(PYVENV)/bin/uvicorn listener:app --reload --port $(FRONTEND_PORT)
+
+.PHONY: smoke-test-frontend
+smoke-test-frontend: ## Run a smoke test against the local frontend (starts it, checks it, stops it)
+	@echo "--- Starting frontend smoke test ---"
+	@# Start uvicorn in background
+	@export KUBETASKER_ENV=development && \
+	cd $(CHART_ROOT)/$(FRONTEND) && \
+	$(CURDIR)/$(PYVENV)/bin/uvicorn listener:app --port $(FRONTEND_PORT) > /tmp/kubetasker-frontend.log 2>&1 & \
+	echo $$! > /tmp/kubetasker-frontend.pid
+	@echo "Frontend started with PID $$(cat /tmp/kubetasker-frontend.pid). Waiting 5s..."
+	@sleep 5
+	@echo "Checking root URL..."
+	@if curl -s http://127.0.0.1:$(FRONTEND_PORT)/ | grep -q "KubeTasker Dashboard"; then \
+		echo "✅ GUI Smoke Test Passed"; \
+		kill $$(cat /tmp/kubetasker-frontend.pid) && rm /tmp/kubetasker-frontend.pid; \
+	else \
+		echo "❌ GUI Smoke Test Failed"; \
+		cat /tmp/kubetasker-frontend.log; \
+		kill $$(cat /tmp/kubetasker-frontend.pid) && rm /tmp/kubetasker-frontend.pid; \
+		exit 1; \
+	fi
 
 .PHONY: docker-clean-frontend
 docker-clean-frontend: ## Stop and remove the running frontend container and its images.

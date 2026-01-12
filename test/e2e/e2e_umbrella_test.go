@@ -181,6 +181,17 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 			// Only run the functional test for the 'dev' environment to avoid redundancy.
 			if tt.environment == "dev" {
+				It("should serve the GUI dashboard", func() {
+					By("verifying the frontend GUI is accessible")
+					verifyFrontendGUI := func(g Gomega) {
+						curlCmd := fmt.Sprintf("curl -s http://%s.%s.svc.cluster.local:8000/", tt.frontendServiceName, tt.namespace)
+						output, err := runInCurlPod("curl-gui-check-umbrella", tt.namespace, curlCmd)
+						g.Expect(err).NotTo(HaveOccurred())
+						g.Expect(output).To(ContainSubstring("<title>KubeTasker Dashboard</title>"))
+					}
+					Eventually(verifyFrontendGUI, "2m").Should(Succeed())
+				})
+
 				It("should create a Ktask via the frontend and see the corresponding Job succeed", func() {
 					const ktaskName = "test-ktask-via-umbrella"
 					const jobName = ktaskName + "-job"
@@ -220,6 +231,41 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 						g.Expect(err).NotTo(HaveOccurred())
 						g.Expect(output).To(Equal("Succeeded"), "Ktask phase should be Succeeded")
 					}).WithTimeout(1 * time.Minute).Should(Succeed())
+				})
+
+				It("should delete a Ktask via the frontend API", func() {
+					const ktaskName = "test-ktask-delete-umbrella"
+					ktaskYAML := fmt.Sprintf(`
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["sleep", "300"]
+`, ktaskName, tt.namespace)
+
+					By("creating a Ktask to delete")
+					cmd := exec.Command("kubectl", "apply", "-f", "-")
+					cmd.Stdin = strings.NewReader(ktaskYAML)
+					_, err := utils.Run(cmd)
+					Expect(err).NotTo(HaveOccurred())
+
+					By("sending a DELETE request")
+					deleterPodName := "curl-deleter-umbrella"
+					curlCmd := fmt.Sprintf("curl -s -X DELETE -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/ktask/%s?namespace=%s",
+						tt.frontendServiceName, tt.namespace, ktaskName, tt.namespace)
+					output, err := runInCurlPod(deleterPodName, tt.namespace, curlCmd)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(strings.TrimSpace(output)).To(Equal("200"))
+
+					By("verifying the Ktask is deleted")
+					Eventually(func(g Gomega) {
+						cmd := exec.Command("kubectl", "get", "ktask", ktaskName, "-n", tt.namespace)
+						_, err := utils.Run(cmd)
+						g.Expect(err).To(HaveOccurred())
+					}, "1m").Should(Succeed())
 				})
 
 				// Define HPA load test scenarios

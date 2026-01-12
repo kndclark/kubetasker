@@ -464,6 +464,71 @@ async def test_worker_processing_logic(
         assert status["phase"] == expected_phase
         assert expected_message_part in status["message"]
 
+def test_get_gui(setup_app_and_mock_k8s_client):
+    """Tests that the GUI endpoint returns HTML."""
+    _, client, _, _ = setup_app_and_mock_k8s_client
+    
+    # Mock opening the index.html file
+    mock_html = "<html><head><title>KubeTasker Dashboard</title></head><body></body></html>"
+    with patch("builtins.open", new_callable=MagicMock) as mock_file:
+        # Configure the mock to return a file object whose read() returns our HTML
+        mock_file.return_value.__enter__.return_value.read.return_value = mock_html
+        
+        response = client.get("/")
+        
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "<title>KubeTasker Dashboard</title>" in response.text
+
+@pytest.mark.parametrize(
+    "api_status, api_reason, expected_status, check_response",
+    [
+        pytest.param(
+            None, None, 200,
+            lambda r, name: r.json() == {"message": f"Ktask '{name}' deleted"},
+            id="success"
+        ),
+        pytest.param(
+            404, "Not Found", 404,
+            lambda r, name: f"Ktask '{name}' not found" in r.json()["detail"],
+            id="not_found"
+        ),
+        pytest.param(
+            500, "Internal Server Error", 500,
+            lambda r, name: f"Failed to delete Ktask '{name}'" in r.json()["detail"]["error"],
+            id="api_error"
+        ),
+        pytest.param(
+            403, "Forbidden", 403,
+            lambda r, name: "Forbidden" in r.json()["detail"]["details"],
+            id="forbidden"
+        ),
+    ]
+)
+def test_delete_ktask(setup_app_and_mock_k8s_client, api_status, api_reason, expected_status, check_response):
+    """Tests deletion of a Ktask with various API outcomes."""
+    mock_k8s, client, create_api_exception, _ = setup_app_and_mock_k8s_client
+    job_name = "test-job"
+    namespace = "default"
+
+    if api_status:
+        side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict={})
+        mock_k8s.client.CustomObjectsApi.return_value.delete_namespaced_custom_object.side_effect = side_effect
+
+    response = client.delete(f"/ktask/{job_name}?namespace={namespace}")
+
+    assert response.status_code == expected_status
+    assert check_response(response, job_name)
+
+    if api_status is None:
+        mock_k8s.client.CustomObjectsApi.return_value.delete_namespaced_custom_object.assert_called_once_with(
+            group="task.ktasker.com",
+            version="v1",
+            namespace=namespace,
+            plural="ktasks",
+            name=job_name,
+        )
+
 def _raise_exception(exc):
     """Helper function to raise an exception within a lambda."""
     raise exc

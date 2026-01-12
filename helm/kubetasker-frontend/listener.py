@@ -1,5 +1,6 @@
 
 from fastapi import FastAPI, HTTPException, Response, Depends
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 import logging
 import json
@@ -187,6 +188,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Serve the GUI
+@app.get("/", response_class=HTMLResponse)
+async def get_gui():
+    """Serves the KubeTasker Dashboard."""
+    with open(os.path.join(os.path.dirname(__file__), "static/index.html")) as f:
+        return f.read()
+
 # Allow external systems to check if app is running/ working
 @app.get("/healthz")
 def health_check():
@@ -273,3 +281,30 @@ def get_ktask(
             raise HTTPException(status_code=404, detail=f"Ktask '{job_name}' not found in namespace '{namespace}'.")
         log.error(f"Failed to retrieve Ktask '{job_name}'", exc_info=True)
         raise HTTPException(status_code=e.status, detail={"error": f"Failed to retrieve Ktask '{job_name}'", "details": e.reason, "body": json.loads(e.body)})
+
+@app.delete("/ktask/{job_name}")
+def delete_ktask(
+    job_name: str,
+    namespace: str = "default",
+    api: client.CustomObjectsApi = Depends(get_k8s_api)
+):
+    '''
+    Delete a Ktask.
+    '''
+    if api is None:
+        raise HTTPException(status_code=503, detail="Service is unavailable: Cannot connect to Kubernetes cluster.")
+    log.info(f"Received request to delete Ktask '{job_name}' in namespace '{namespace}'")
+    try:
+        api.delete_namespaced_custom_object(
+            group="task.ktasker.com",
+            version="v1",
+            namespace=namespace,
+            plural="ktasks",
+            name=job_name,
+        )
+        return {"message": f"Ktask '{job_name}' deleted"}
+    except ApiException as e:
+        if e.status == 404:
+            raise HTTPException(status_code=404, detail=f"Ktask '{job_name}' not found.")
+        log.error(f"Failed to delete Ktask '{job_name}'", exc_info=True)
+        raise HTTPException(status_code=e.status, detail={"error": f"Failed to delete Ktask '{job_name}'", "details": e.reason})
