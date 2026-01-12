@@ -64,6 +64,7 @@
                                         <th>Namespace</th>
                                         <th>Phase</th>
                                         <th>Message</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tasksTableBody">
@@ -126,6 +127,25 @@
             }
         }
 
+        async function deleteTask(name, namespace) {
+            if (!confirm(`Are you sure you want to delete task '${name}'?`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/ktask/${name}?namespace=${namespace}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    loadTasks(); // Refresh list
+                } else {
+                    const err = await res.json();
+                    alert('Error deleting task: ' + JSON.stringify(err));
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Failed to send delete request');
+            }
+        }
+
         async function loadTasks() {
             const ns = document.getElementById('taskNamespace').value || 'default';
             const tbody = document.getElementById('tasksTableBody');
@@ -159,6 +179,9 @@
                             <td><span class="badge bg-secondary">${item.metadata.namespace}</span></td>
                             <td><span class="badge ${phase === 'Succeeded' ? 'bg-success' : phase === 'Failed' ? 'bg-danger' : 'bg-warning text-dark'}">${phase}</span></td>
                             <td class="small text-muted">${message}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteTask('${item.metadata.name}', '${item.metadata.namespace}')">Delete</button>
+                            </td>
                         </tr>
                     `;
                     tbody.innerHTML += row;

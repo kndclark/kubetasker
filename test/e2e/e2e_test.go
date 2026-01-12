@@ -445,6 +445,41 @@ var _ = Describe("Manager", Ordered, func() {
 			_, _ = utils.Run(cmd)
 		})
 
+		It("should delete a Ktask via the frontend API", func() {
+			const ktaskName = "test-ktask-delete-api"
+			const ktaskYAML = `
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: busybox
+  command: ["/bin/sh", "-c", "sleep 300"]
+`
+			By("creating a Ktask to delete")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(ktaskYAML, ktaskName, namespace))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("sending a DELETE request to the frontend service")
+			deleterPodName := "curl-deleter"
+			curlCmd := fmt.Sprintf("curl -s -X DELETE -o /dev/null -w %%{http_code} http://%s.%s.svc.cluster.local:8000/ktask/%s?namespace=%s",
+				frontendServiceName, namespace, ktaskName, namespace)
+			output, err := runInCurlPod(deleterPodName, namespace, curlCmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(Equal("200"))
+
+			By("verifying the Ktask is deleted")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ktask", ktaskName, "-n", namespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring("not found"))
+			}, "1m", "1s").Should(Succeed())
+		})
+
 		It("should handle a Ktask that results in a successful Job", func() { // Test for successful job
 			const ktaskName = "test-ktask-success"
 			const ktaskYAML = `
