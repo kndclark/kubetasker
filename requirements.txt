@@ -18,6 +18,7 @@ packaging
 pluggy
 pyasn1
 pyasn1_modules
+prometheus-client
 pydantic
 pydantic_core
 Pygments

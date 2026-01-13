@@ -11,6 +11,9 @@ from typing import List, Optional
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from contextlib import asynccontextmanager
+from prometheus_client import make_asgi_app
+
+import metrics
 
 # --- Structured Logging Setup ---
 class JsonFormatter(logging.Formatter):
@@ -181,12 +184,17 @@ async def process_ktasks():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_k8s_api() # Optional: pre-warm the client at startup
+    metrics.start_collector() # Start the background metrics collector
     task = asyncio.create_task(process_ktasks())
     yield
     task.cancel()
     log.info("Shutting down.")
 
 app = FastAPI(lifespan=lifespan)
+
+# Expose Prometheus metrics
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 # Serve the GUI
 @app.get("/", response_class=HTMLResponse)

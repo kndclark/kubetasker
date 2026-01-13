@@ -32,6 +32,39 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	customv1 "github.com/kndclark/kubetasker/api/v1"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	reconcileDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "kubetasker",
+			Subsystem: "controller",
+			Name:      "reconcile_duration_seconds",
+			Help:      "Time spent reconciling Ktask resources",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"result"},
+	)
+
+	reconcileErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "kubetasker",
+			Subsystem: "controller",
+			Name:      "reconcile_errors_total",
+			Help:      "Total number of reconciliation errors",
+		},
+	)
+
+	activeReconciles = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "kubetasker",
+			Subsystem: "controller",
+			Name:      "active_reconciles",
+			Help:      "Number of active reconciliations",
+		},
+	)
 )
 
 // KtaskReconciler reconciles a Ktask object
@@ -49,7 +82,21 @@ type KtaskReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+	start := time.Now()
+	activeReconciles.Inc()
+	defer func() {
+		activeReconciles.Dec()
+		duration := time.Since(start).Seconds()
+
+		result := "success"
+		if err != nil {
+			result = "error"
+			reconcileErrors.Inc()
+		}
+		reconcileDuration.WithLabelValues(result).Observe(duration)
+	}()
+
 	log := logf.FromContext(ctx)
 
 	// Create a contextual logger with the Ktask's name and namespace.

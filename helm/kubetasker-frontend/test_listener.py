@@ -73,7 +73,10 @@ def setup_app_and_mock_k8s_client():
         async def mock_worker():
             pass
         
-        with patch("listener.process_ktasks", side_effect=mock_worker):
+        # Patch process_ktasks to prevent background execution during tests.
+        # Also patch metrics.start_collector to prevent the metrics thread from starting.
+        with patch("listener.process_ktasks", side_effect=mock_worker), \
+             patch("listener.metrics.start_collector"):
             # Reset state before each test
             listener.submission_status.clear()
             listener.ktask_queue = asyncio.Queue(maxsize=1000)

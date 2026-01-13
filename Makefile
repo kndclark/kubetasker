@@ -195,7 +195,9 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend API container image.
+	cp requirements.txt $(CHART_ROOT)/$(FRONTEND)/requirements.txt
 	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND)
+	rm $(CHART_ROOT)/$(FRONTEND)/requirements.txt
 
 .PHONY: load-docker-frontend
 load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
@@ -343,6 +345,40 @@ deploy-umbrella: docker-build docker-build-frontend install-cert-manager ## Depl
 	@echo "--- KubeTasker umbrella chart deployed successfully."
 	@echo "--- To check the status, run: kubectl get pods -n $(UMBRELLA_NAMESPACE)"
 
+.PHONY: install-prometheus
+install-prometheus: ## Install kube-prometheus-stack using Helm.
+	@echo "--- Checking for kube-prometheus-stack release..."
+	@if ! helm status prometheus -n monitoring > /dev/null 2>&1; then \
+		echo "--- kube-prometheus-stack not found. Installing via Helm..."; \
+		helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; \
+		helm repo update; \
+		helm install prometheus prometheus-community/kube-prometheus-stack \
+			--namespace monitoring \
+			--create-namespace \
+			--wait; \
+	else \
+		echo "--- kube-prometheus-stack is already installed. Skipping installation."; \
+	fi
+
+.PHONY: deploy-monitoring
+deploy-monitoring: docker-build docker-build-frontend install-cert-manager install-prometheus ## Deploy KubeTasker with Prometheus monitoring enabled.
+	@echo "--- Loading images into Kind cluster..."
+	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
+	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
+	@echo "--- Updating Helm dependencies for umbrella chart..."
+	helm dependency update $(CHART_ROOT)/kubetasker
+	@echo "--- Deploying umbrella chart with monitoring enabled..."
+	helm upgrade --install $(UMBRELLA_RELEASE_NAME) $(CHART_ROOT)/kubetasker \
+		--namespace $(UMBRELLA_NAMESPACE) --create-namespace \
+		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
+		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--set kubetasker-controller.serviceMonitor.enabled=true \
+		--set kubetasker-frontend.serviceMonitor.enabled=true \
+		--wait
+	@echo "--- KubeTasker with monitoring deployed successfully."
+
 .PHONY: undeploy-umbrella
 undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
 	@echo "--- Uninstalling umbrella chart release '$(UMBRELLA_RELEASE_NAME)' from namespace '$(UMBRELLA_NAMESPACE)'..."
@@ -353,6 +389,18 @@ undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
 	-helm uninstall cert-manager --namespace cert-manager
 	@echo "--- Deleting cert-manager namespace..."
 	-$(KUBECTL) delete namespace cert-manager --ignore-not-found
+
+.PHONY: uninstall-prometheus
+uninstall-prometheus: ## Uninstall kube-prometheus-stack.
+	@echo "--- Uninstalling kube-prometheus-stack..."
+	-helm uninstall prometheus --namespace monitoring
+	@echo "--- Deleting monitoring namespace..."
+	-$(KUBECTL) delete namespace monitoring --ignore-not-found
+
+.PHONY: dashboard-prometheus
+dashboard-prometheus: ## Port-forward Prometheus dashboard to localhost:9090
+	@echo "--- Port-forwarding Prometheus dashboard to http://localhost:9090 ..."
+	$(KUBECTL) port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090
 
 # Variables for Kustomize deployment
 ENVS ?= dev staging prod
