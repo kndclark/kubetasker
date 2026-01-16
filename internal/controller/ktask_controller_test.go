@@ -17,7 +17,12 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -27,11 +32,37 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	customv1 "github.com/kndclark/kubetasker/api/v1"
 )
+
+type mockManager struct {
+	ctrl.Manager
+	client client.Client
+}
+
+func (m *mockManager) GetClient() client.Client {
+	return m.client
+}
+
+type failClient struct {
+	client.Client
+}
+
+func (f *failClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	return fmt.Errorf("mock list error")
+}
+
+func (f *failClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	return fmt.Errorf("mock create error")
+}
+
+func (f *failClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	return fmt.Errorf("mock delete error")
+}
 
 var _ = Describe("Ktask Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -562,6 +593,124 @@ var _ = Describe("Ktask Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.RequeueAfter).To(Equal(time.Second * 2))
+		})
+	})
+
+	Context("When handling API requests", func() {
+		var mgr *mockManager
+
+		BeforeEach(func() {
+			mgr = &mockManager{client: k8sClient}
+		})
+
+		It("should list Ktasks via HTTP GET", func() {
+			ktask := &customv1.Ktask{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-test-ktask",
+					Namespace: "default",
+				},
+				Spec: customv1.KtaskSpec{
+					Image: "busybox",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), ktask)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(context.Background(), ktask) }()
+
+			req, _ := http.NewRequest("GET", "/ktask?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskListCreate(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusOK))
+			var list customv1.KtaskList
+			Expect(json.Unmarshal(rr.Body.Bytes(), &list)).To(Succeed())
+			// We might have other ktasks from other tests, so just check for existence
+			found := false
+			for _, item := range list.Items {
+				if item.Name == "api-test-ktask" {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue())
+		})
+
+		It("should create a Ktask via HTTP POST", func() {
+			ktask := customv1.Ktask{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "api-created-ktask",
+				},
+				Spec: customv1.KtaskSpec{
+					Image: "nginx",
+				},
+			}
+			body, _ := json.Marshal(ktask)
+			req, _ := http.NewRequest("POST", "/ktask?namespace=default", bytes.NewBuffer(body))
+			rr := httptest.NewRecorder()
+			handler := handleKtaskListCreate(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusCreated))
+
+			key := types.NamespacedName{Name: "api-created-ktask", Namespace: "default"}
+			created := &customv1.Ktask{}
+			Expect(k8sClient.Get(context.Background(), key, created)).To(Succeed())
+			_ = k8sClient.Delete(context.Background(), created)
+		})
+
+		It("should delete a Ktask via HTTP DELETE", func() {
+			// We rely on the fact that the handler calls client.Delete.
+			// If the object doesn't exist, it returns 404.
+			req, _ := http.NewRequest("DELETE", "/ktask/non-existent?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskDelete(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusNotFound))
+		})
+
+		It("should return 400 Bad Request for invalid JSON on POST", func() {
+			req, _ := http.NewRequest("POST", "/ktask?namespace=default", bytes.NewBuffer([]byte("{invalid-json")))
+			rr := httptest.NewRecorder()
+			handler := handleKtaskListCreate(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 500 Internal Server Error when List fails", func() {
+			failMgr := &mockManager{client: &failClient{Client: k8sClient}}
+			req, _ := http.NewRequest("GET", "/ktask?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskListCreate(failMgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusInternalServerError))
+		})
+
+		It("should return 500 Internal Server Error when Create fails", func() {
+			failMgr := &mockManager{client: &failClient{Client: k8sClient}}
+			ktask := customv1.Ktask{
+				ObjectMeta: metav1.ObjectMeta{Name: "fail-ktask"},
+				Spec:       customv1.KtaskSpec{Image: "busybox"},
+			}
+			body, _ := json.Marshal(ktask)
+			req, _ := http.NewRequest("POST", "/ktask?namespace=default", bytes.NewBuffer(body))
+			rr := httptest.NewRecorder()
+			handler := handleKtaskListCreate(failMgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusInternalServerError))
+		})
+
+		It("should return 500 Internal Server Error when Delete fails", func() {
+			failMgr := &mockManager{client: &failClient{Client: k8sClient}}
+			req, _ := http.NewRequest("DELETE", "/ktask/fail-ktask?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskDelete(failMgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusInternalServerError))
 		})
 	})
 })

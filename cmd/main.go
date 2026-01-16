@@ -68,6 +68,7 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	var defaultJobCPURequest, defaultJobMemoryRequest, defaultJobCPULimit, defaultJobMemoryLimit string
+	var apiBindAddress string
 
 	fs := flag.NewFlagSet("kubetasker", flag.ContinueOnError)
 	fs.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -91,6 +92,7 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	fs.StringVar(&defaultJobMemoryRequest, "default-job-memory-request", "128Mi", "Default memory request for jobs")
 	fs.StringVar(&defaultJobCPULimit, "default-job-cpu-limit", "100m", "Default CPU limit for jobs")
 	fs.StringVar(&defaultJobMemoryLimit, "default-job-memory-limit", "128Mi", "Default memory limit for jobs")
+	fs.StringVar(&apiBindAddress, "api-bind-address", ":8090", "The address the API endpoint binds to.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -230,6 +232,9 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		return err
 	}
+
+	// Start the API Server
+	controller.StartAPIServer(mgr, apiBindAddress)
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

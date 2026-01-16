@@ -19,6 +19,9 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# The URL of the KubeTasker controller API.
+controllerUrl: "http://kubetasker-controller:8090"
+
 # This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
 serviceAccount:
   # Specifies whether a service account should be created
@@ -128,12 +131,12 @@ resources:
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 livenessProbe:
   httpGet:
-    path: /
-    port: http
+    path: /healthz
+    port: 8000
 readinessProbe:
   httpGet:
-    path: /
-    port: http
+    path: /healthz
+    port: 8000
 
 # This section configures the Prometheus ServiceMonitor
 serviceMonitor:

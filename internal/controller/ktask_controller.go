@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -338,4 +341,101 @@ func (r *KtaskReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("ktask").
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+// StartAPIServer starts a simple HTTP server to expose Ktask operations
+func StartAPIServer(mgr ctrl.Manager, addr string) {
+	if addr == "" || strings.HasPrefix(addr, "127.0.0.1") || strings.HasPrefix(addr, "localhost") {
+		addr = ":8090"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ktask", handleKtaskListCreate(mgr))
+	mux.HandleFunc("/ktask/", handleKtaskDelete(mgr))
+
+	go func() {
+		log := logf.Log.WithName("api-server")
+		log.Info("Starting API server", "address", addr)
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			log.Error(err, "API server failed")
+		}
+	}()
+}
+
+func handleKtaskListCreate(mgr ctrl.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		c := mgr.GetClient()
+
+		ns := r.URL.Query().Get("namespace")
+		if ns == "" {
+			ns = "default"
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			var list customv1.KtaskList
+			if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(list); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+
+		case http.MethodPost:
+			var kt customv1.Ktask
+			if err := json.NewDecoder(r.Body).Decode(&kt); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			// Ensure namespace is set
+			if kt.Namespace == "" {
+				kt.Namespace = ns
+			}
+			if err := c.Create(ctx, &kt); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(kt)
+
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func handleKtaskDelete(mgr ctrl.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		name := strings.TrimPrefix(r.URL.Path, "/ktask/")
+		ns := r.URL.Query().Get("namespace")
+		if ns == "" {
+			ns = "default"
+		}
+
+		kt := &customv1.Ktask{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		}
+
+		if err := mgr.GetClient().Delete(r.Context(), kt); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "Ktask not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

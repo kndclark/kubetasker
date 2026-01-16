@@ -44,12 +44,15 @@ spec:
         {{- end }}
       containers:
       - name: manager
+        ports:
+        - containerPort: {{ .Values.service.targetPort }}
+          name: http
         command:
         - /manager
         args:
         - --metrics-bind-address=:8443
         - --leader-elect
-        - --health-probe-bind-address=:{{ .Values.service.port }}
+        - --health-probe-bind-address=:{{ .Values.service.healthPort }}
         - --default-job-cpu-request={{ .Values.jobDefaultResources.requests.cpu }}
         - --default-job-memory-request={{ .Values.jobDefaultResources.requests.memory }}
         - --default-job-cpu-limit={{ .Values.jobDefaultResources.limits.cpu }}

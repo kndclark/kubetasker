@@ -1,15 +1,10 @@
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 import json
 import asyncio
+import httpx
 
-# We need to import the real kubernetes.client.exceptions here
-# to create a mock ApiException that behaves like the real one.
-# This import must happen outside any patching of `sys.modules['kubernetes']`
-# if we want to use the real ApiException type.
-from kubernetes.client.exceptions import ApiException as RealApiException
-from pydantic import ValidationError
 @pytest.fixture(autouse=True)
 def setup_app_and_mock_k8s_client():
     """
@@ -22,16 +17,6 @@ def setup_app_and_mock_k8s_client():
     mock_kubernetes = MagicMock()
     mock_kubernetes.client = MagicMock()
     mock_kubernetes.config = MagicMock()
-    # Assign the real ApiException type to the mock's exceptions module
-    # We need to mock the body attribute to be a JSON string
-    class MockApiException(RealApiException):
-        def __init__(self, status=0, reason=None, http_resp=None, body="{}"):
-            # In Python 3.12, the body attribute is expected to be bytes.
-            if isinstance(body, str):
-                body = body.encode('utf-8')
-            super().__init__(status, reason, http_resp)
-            self.body = body
-    mock_kubernetes.client.exceptions.ApiException = MockApiException
 
     # Patch the config loading functions to do nothing.
     # These patches are active during the import of `listener.py`.
@@ -42,55 +27,30 @@ def setup_app_and_mock_k8s_client():
              'kubernetes': mock_kubernetes,
              'kubernetes.client': mock_kubernetes.client,
              'kubernetes.config': mock_kubernetes.config,
-             'kubernetes.client.exceptions': mock_kubernetes.client.exceptions,
          }):
         # Import app and the dependency function within the patched context
         import listener
-        from listener import app, get_k8s_api
+        from listener import app
 
-        def _create_api_exception_side_effect(status, reason, body_dict):
-            """
-            Factory to create a side_effect function that raises an ApiException.
-            This simplifies mocking API errors in tests.
-            """
-            exception_body = json.dumps(body_dict)
-            mock_resp = MagicMock()
-            mock_resp.status = status
-            mock_resp.reason = reason
-            
-            # The lambda ensures a fresh exception is raised on each call.
-            return lambda *args, **kwargs: _raise_exception(
-                mock_kubernetes.client.exceptions.ApiException(
-                    status=status, body=exception_body, http_resp=mock_resp
-                )
-            )
+        # Mock httpx.AsyncClient
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_client_instance = AsyncMock()
+            mock_httpx.return_value = mock_client_instance
+            mock_client_instance.__aenter__.return_value = mock_client_instance
+            mock_client_instance.__aexit__.return_value = None
 
-        # Override the dependency with our mock client
-        app.dependency_overrides[get_k8s_api] = lambda: mock_kubernetes.client.CustomObjectsApi()
-        
-        # Patch process_ktasks to prevent background execution during tests.
-        # This ensures we can inspect the queue and status deterministically.
-        async def mock_worker():
-            pass
-        
-        # Patch process_ktasks to prevent background execution during tests.
-        # Also patch metrics.start_collector to prevent the metrics thread from starting.
-        with patch("listener.process_ktasks", side_effect=mock_worker), \
-             patch("listener.metrics.start_collector"):
-            # Reset state before each test
-            listener.submission_status.clear()
-            listener.ktask_queue = asyncio.Queue(maxsize=1000)
-            
-            test_client = TestClient(app)
+            # Patch metrics.start_collector to prevent the metrics thread from starting.
+            with patch("listener.metrics.start_collector"):
+                test_client = TestClient(app)
 
-            # Yield the mock, client, helper function, and the listener module
-            yield mock_kubernetes, test_client, _create_api_exception_side_effect, listener
+                # Yield the mock client and test client
+                yield mock_client_instance, test_client, listener
 
 def test_health_check(setup_app_and_mock_k8s_client):
     """
     Tests the /healthz endpoint.
     """
-    _, client, _, _ = setup_app_and_mock_k8s_client
+    _, client, _ = setup_app_and_mock_k8s_client
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -154,75 +114,22 @@ def test_health_check(setup_app_and_mock_k8s_client):
 )
 def test_create_ktask_success(setup_app_and_mock_k8s_client, input_payload, expected_body):
     """Tests successful POST /ktask calls with various valid payloads."""
-    mock_k8s, client, _, listener_module = setup_app_and_mock_k8s_client
+    mock_httpx, client, listener_module = setup_app_and_mock_k8s_client
+
+    # Setup mock response from controller
+    mock_httpx.post.return_value = httpx.Response(201, json=expected_body)
 
     response = client.post("/ktask", json=input_payload)
 
     # Assertions
-    assert response.status_code == 202
-    assert response.json()["message"] == "Ktask buffered"
-    assert response.json()["ktask_name"] == input_payload["metadata"]["name"]
+    assert response.status_code == 201
+    assert response.json() == expected_body
 
-    # Verify buffering logic
-    ktask_name = input_payload["metadata"]["name"]
-    assert listener_module.submission_status[ktask_name]["phase"] == "Pending"
-    assert listener_module.ktask_queue.qsize() == 1
-
-    # Verify that the k8s client was NOT called synchronously (worker is mocked)
-    mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.assert_not_called()
-
-@pytest.mark.parametrize(
-    "payload_override, expected_error_loc, expected_error_msg",
-    [
-        pytest.param(
-            {"spec": {"command": ["echo", "test"]}}, # Missing 'image'
-            ("body", "spec", "image"),
-            "Field required",
-            id="missing_image",
-        ),
-        pytest.param(
-            {"apiVersion": "task.ktasker.com/v2"}, # Incorrect version
-            ("body", "apiVersion"),
-            'Value error, apiVersion must be "task.ktasker.com/v1"',
-            id="bad_api_version",
-        ),
-        pytest.param(
-            {"kind": "NotKtask"}, # Incorrect kind
-            ("body", "kind"),
-            'Value error, kind must be "Ktask"',
-            id="bad_kind",
-        ),
-        pytest.param(
-            {"spec": {"image": "busybox", "command": "not-a-list"}}, # Invalid type
-            ("body", "spec", "command"),
-            "Input should be a valid list",
-            id="bad_command_type",
-        ),
-    ],
-)
-def test_create_ktask_validation_errors(setup_app_and_mock_k8s_client, payload_override, expected_error_loc, expected_error_msg):
-    """
-    Tests that POST /ktask returns a 422 on various Pydantic validation failures.
-    """
-    _, client, _, _ = setup_app_and_mock_k8s_client
-
-    base_payload = {
-        "apiVersion": "task.ktasker.com/v1",
-        "kind": "Ktask",
-        "metadata": {"name": "test-job-invalid", "namespace": "default"},
-        "spec": {"image": "busybox"},
-    }
-    # The override payload replaces keys in the base payload.
-    invalid_payload = {**base_payload, **payload_override}
-
-    response = client.post("/ktask", json=invalid_payload)
-
-    assert response.status_code == 422
-    response_json = response.json()
-    assert "detail" in response_json
-    error_details = response_json["detail"][0]
-    assert error_details["loc"] == list(expected_error_loc)
-    assert expected_error_msg in error_details["msg"]
+    # Verify proxy call
+    mock_httpx.post.assert_called_once()
+    call_args = mock_httpx.post.call_args
+    assert call_args[0][0].endswith("/ktask")
+    assert json.loads(call_args[1]['content']) == input_payload
 
 @pytest.mark.parametrize(
     "query_params, expected_namespace",
@@ -235,241 +142,24 @@ def test_list_ktasks(setup_app_and_mock_k8s_client, query_params, expected_names
     """
     Tests GET /ktask with and without an explicit namespace parameter.
     """
-    mock_k8s_client, client, _, _ = setup_app_and_mock_k8s_client
-    mock_k8s_response = {"items": [{"metadata": {"name": f"test-job-in-{expected_namespace}"}}]}
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = mock_k8s_response
+    mock_httpx, client, _ = setup_app_and_mock_k8s_client
+    mock_response = {"items": [{"metadata": {"name": f"test-job-in-{expected_namespace}"}}]}
+    mock_httpx.get.return_value = httpx.Response(200, json=mock_response)
 
     response = client.get(f"/ktask{query_params}")
 
     assert response.status_code == 200
-    assert response.json() == mock_k8s_response
-
-    # Verify that the k8s client was called correctly.
-    mock_k8s_client.client.CustomObjectsApi.return_value.list_namespaced_custom_object.assert_called_once_with(
-        group="task.ktasker.com",
-        version="v1",
-        namespace=expected_namespace,
-        plural="ktasks",
-    )
-
-@pytest.mark.parametrize(
-    "api_status, api_reason, api_body, expected_text",
-    [
-        pytest.param(
-            500, "Internal Server Error", {"message": "the server has a problem"}, "the server has a problem",
-            id="internal_error_500"
-        ),
-        # We could add other error codes here, like 403 Forbidden
-        pytest.param(
-            403, "Forbidden", {"message": "user cannot list resources"}, "user cannot list resources",
-            id="forbidden_403"
-        ),
-    ]
-)
-def test_list_ktasks_api_errors(setup_app_and_mock_k8s_client, api_status, api_reason, api_body, expected_text):
-    """Tests that GET /ktask handles various API errors from Kubernetes."""
-    mock_k8s, client, create_api_exception, _ = setup_app_and_mock_k8s_client
-    side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict=api_body)
-    mock_k8s.client.CustomObjectsApi.return_value.list_namespaced_custom_object.side_effect = side_effect
-
-    response = client.get("/ktask?namespace=test-ns")
-    assert response.status_code == api_status
-    assert expected_text in response.text
-
-@pytest.mark.parametrize(
-    "url, mock_method_name, mock_response, expected_call_kwargs",
-    [
-        pytest.param(
-            "/ktask?namespace=test-ns",
-            "list_namespaced_custom_object",
-            {"items": [{"metadata": {"name": "job-in-test-ns"}}]},
-            {"namespace": "test-ns"},
-            id="list_explicit_namespace"
-        ),
-        pytest.param(
-            "/ktask",
-            "list_namespaced_custom_object",
-            {"items": [{"metadata": {"name": "job-in-default-ns"}}]},
-            {"namespace": "default"},
-            id="list_default_namespace"
-        ),
-        pytest.param(
-            "/ktask/my-specific-job?namespace=test-ns",
-            "get_namespaced_custom_object",
-            {"metadata": {"name": "my-specific-job"}},
-            {"name": "my-specific-job", "namespace": "test-ns"},
-            id="get_single_job"
-        ),
-    ]
-)
-def test_get_and_list_ktasks_success(setup_app_and_mock_k8s_client, url, mock_method_name, mock_response, expected_call_kwargs):
-    """Tests successful GET requests for listing and retrieving single Ktasks."""
-    mock_k8s, client, _, _ = setup_app_and_mock_k8s_client
-    mock_method = getattr(mock_k8s.client.CustomObjectsApi.return_value, mock_method_name)
-    mock_method.return_value = mock_response
-
-    response = client.get(url)
-
-    assert response.status_code == 200
     assert response.json() == mock_response
 
-    # Verify the correct Kubernetes client method was called with the right arguments
-    base_kwargs = {"group": "task.ktasker.com", "version": "v1", "plural": "ktasks"}
-    mock_method.assert_called_once_with(**base_kwargs, **expected_call_kwargs)
-
-@pytest.mark.parametrize(
-    "api_status, api_reason, api_body, expected_text",
-    [
-        pytest.param(
-            404, "Not Found", {"message": "not found"}, "not found",
-            id="not_found_404"
-        ),
-        pytest.param(
-            503, "Service Unavailable", {"message": "etcd is down"}, "etcd is down",
-            id="service_unavailable_503"
-        ),
-    ]
-)
-def test_get_ktask_api_errors(setup_app_and_mock_k8s_client, api_status, api_reason, api_body, expected_text):
-    """
-    Tests that GET /ktask/{job_name} handles various API errors from Kubernetes.
-    """
-    mock_k8s, client, create_api_exception, _ = setup_app_and_mock_k8s_client
-
-    side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict=api_body)
-    mock_k8s.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
-
-    response = client.get("/ktask/some-job?namespace=test-ns")
-    assert response.status_code == api_status
-    assert expected_text in response.text
-
-@pytest.mark.parametrize(
-    "status_phase, status_message, expected_reason",
-    [
-        ("Pending", "In queue", "AsyncSubmissionStatus"),
-        ("Created", "Successfully submitted to Kubernetes", "AsyncSubmissionStatus"),
-        ("Failed", "Something went wrong", "AsyncSubmissionStatus"),
-    ]
-)
-def test_get_ktask_async_status(setup_app_and_mock_k8s_client, status_phase, status_message, expected_reason):
-    """
-    Tests that GET /ktask/{name} returns in-memory status when K8s returns 404.
-    """
-    mock_k8s, client, create_api_exception, listener_module = setup_app_and_mock_k8s_client
-    job_name = "async-job"
-    namespace = "default"
-
-    # Mock K8s returning 404
-    side_effect = create_api_exception(status=404, reason="Not Found", body_dict={})
-    mock_k8s.client.CustomObjectsApi.return_value.get_namespaced_custom_object.side_effect = side_effect
-
-    # Set in-memory status
-    listener_module.update_submission_status(job_name, status_phase, status_message)
-    
-    response = client.get(f"/ktask/{job_name}?namespace={namespace}")
-    assert response.status_code == 200
-    json_resp = response.json()
-    assert json_resp["metadata"]["name"] == job_name
-    assert json_resp["status"]["phase"] == status_phase
-    assert json_resp["status"]["message"] == status_message
-    assert json_resp["status"]["reason"] == expected_reason
-
-@pytest.mark.parametrize(
-    "method, url",
-    [
-        ("GET", "/ktask?namespace=test-ns"),
-        ("GET", "/ktask/some-job?namespace=test-ns"),
-    ],
-    ids=["list_ktasks", "get_ktask"]
-)
-def test_api_unavailable_when_k8s_client_fails(method, url):
-    """
-    Tests that endpoints return 503 if the Kubernetes client could not be initialized.
-    This test runs without the standard fixture to control dependency overrides manually.
-    """
-    from listener import app, get_k8s_api
-
-    # Override the dependency to simulate a failure to get the k8s client
-    app.dependency_overrides[get_k8s_api] = lambda: None
-    
-    with TestClient(app) as client:
-        if method == "POST":
-            # POST requires a valid body, even if the endpoint logic fails early
-            valid_payload = {"apiVersion": "task.ktasker.com/v1", "kind": "Ktask", "metadata": {"name": "job"}, "spec": {"image": "img"}}
-            response = client.post(url, json=valid_payload)
-        else:
-            response = client.get(url)
-
-        assert response.status_code == 503
-        assert "Service is unavailable" in response.json()["detail"]
-
-    # Clear the override for other tests
-    app.dependency_overrides.clear()
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "api_status, api_reason, expected_call_count, expected_sleep_count, expected_phase, expected_message_part",
-    [
-        pytest.param(None, None, 1, 0, "Created", "Successfully submitted", id="success"),
-        pytest.param(500, "Internal Error", 3, 2, "Failed", "Failed after 3 attempts", id="retry_failure"),
-        pytest.param(409, "Conflict", 1, 0, "Failed", "Ktask already exists", id="conflict_no_retry"),
-        pytest.param("API_UNAVAILABLE", None, 0, 0, "Failed", "Kubernetes API unavailable", id="api_client_init_failure"),
-        pytest.param(422, "Unprocessable Entity", 3, 2, "Failed", "Failed after 3 attempts", id="unprocessable_entity_retry"),
-    ]
-)
-async def test_worker_processing_logic(
-    setup_app_and_mock_k8s_client,
-    api_status,
-    api_reason,
-    expected_call_count,
-    expected_sleep_count,
-    expected_phase,
-    expected_message_part
-):
-    """
-    Tests the worker processing logic including success, retries, and conflict handling.
-    """
-    mock_k8s, _, create_api_exception, listener_module = setup_app_and_mock_k8s_client
-    
-    job_name = "test-job"
-    payload_dict = {
-        "apiVersion": "task.ktasker.com/v1",
-        "kind": "Ktask",
-        "metadata": {"name": job_name, "namespace": "default"},
-        "spec": {"image": "busybox"}
-    }
-    ktask = listener_module.KtaskPayload(**payload_dict)
-    
-    # Configure mock behavior
-    if api_status != "API_UNAVAILABLE":
-        if api_status:
-            side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict={})
-            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = side_effect
-        else:
-            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.return_value = payload_dict
-            mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.side_effect = None
-
-    # Patch asyncio.sleep to speed up the test and verify sleep calls
-    with patch("asyncio.sleep", return_value=None) as mock_sleep:
-        if api_status == "API_UNAVAILABLE":
-            # Simulate get_k8s_api returning None by patching it in the listener module
-            with patch.object(listener_module, "get_k8s_api", return_value=None):
-                await listener_module.process_single_ktask(ktask)
-        else:
-            await listener_module.process_single_ktask(ktask)
-        
-        # Verify calls
-        assert mock_k8s.client.CustomObjectsApi.return_value.create_namespaced_custom_object.call_count == expected_call_count
-        assert mock_sleep.call_count == expected_sleep_count
-        
-        # Verify status is Failed
-        status = listener_module.get_submission_status(job_name)
-        assert status["phase"] == expected_phase
-        assert expected_message_part in status["message"]
+    # Verify proxy call
+    mock_httpx.get.assert_called_once()
+    call_args = mock_httpx.get.call_args
+    assert call_args[0][0].endswith("/ktask")
+    assert call_args[1]['params'] == {"namespace": expected_namespace}
 
 def test_get_gui(setup_app_and_mock_k8s_client):
     """Tests that the GUI endpoint returns HTML."""
-    _, client, _, _ = setup_app_and_mock_k8s_client
+    _, client, _ = setup_app_and_mock_k8s_client
     
     # Mock opening the index.html file
     mock_html = "<html><head><title>KubeTasker Dashboard</title></head><body></body></html>"
@@ -483,55 +173,83 @@ def test_get_gui(setup_app_and_mock_k8s_client):
         assert "text/html" in response.headers["content-type"]
         assert "<title>KubeTasker Dashboard</title>" in response.text
 
-@pytest.mark.parametrize(
-    "api_status, api_reason, expected_status, check_response",
-    [
-        pytest.param(
-            None, None, 200,
-            lambda r, name: r.json() == {"message": f"Ktask '{name}' deleted"},
-            id="success"
-        ),
-        pytest.param(
-            404, "Not Found", 404,
-            lambda r, name: f"Ktask '{name}' not found" in r.json()["detail"],
-            id="not_found"
-        ),
-        pytest.param(
-            500, "Internal Server Error", 500,
-            lambda r, name: f"Failed to delete Ktask '{name}'" in r.json()["detail"]["error"],
-            id="api_error"
-        ),
-        pytest.param(
-            403, "Forbidden", 403,
-            lambda r, name: "Forbidden" in r.json()["detail"]["details"],
-            id="forbidden"
-        ),
-    ]
-)
-def test_delete_ktask(setup_app_and_mock_k8s_client, api_status, api_reason, expected_status, check_response):
-    """Tests deletion of a Ktask with various API outcomes."""
-    mock_k8s, client, create_api_exception, _ = setup_app_and_mock_k8s_client
+def test_delete_ktask(setup_app_and_mock_k8s_client):
+    """Tests deletion of a Ktask."""
+    mock_httpx, client, _ = setup_app_and_mock_k8s_client
     job_name = "test-job"
     namespace = "default"
 
-    if api_status:
-        side_effect = create_api_exception(status=api_status, reason=api_reason, body_dict={})
-        mock_k8s.client.CustomObjectsApi.return_value.delete_namespaced_custom_object.side_effect = side_effect
+    mock_httpx.delete.return_value = httpx.Response(204)
 
     response = client.delete(f"/ktask/{job_name}?namespace={namespace}")
 
-    assert response.status_code == expected_status
-    assert check_response(response, job_name)
+    assert response.status_code == 204
 
-    if api_status is None:
-        mock_k8s.client.CustomObjectsApi.return_value.delete_namespaced_custom_object.assert_called_once_with(
-            group="task.ktasker.com",
-            version="v1",
-            namespace=namespace,
-            plural="ktasks",
-            name=job_name,
-        )
+    # Verify proxy call
+    mock_httpx.delete.assert_called_once()
+    call_args = mock_httpx.delete.call_args
+    assert call_args[0][0].endswith(f"/ktask/{job_name}")
+    assert call_args[1]['params'] == {"namespace": namespace}
 
-def _raise_exception(exc):
-    """Helper function to raise an exception within a lambda."""
-    raise exc
+def test_get_single_ktask_not_implemented(setup_app_and_mock_k8s_client):
+    """Tests that GET single Ktask returns 501."""
+    _, client, _ = setup_app_and_mock_k8s_client
+    response = client.get("/ktask/some-job")
+    assert response.status_code == 501
+
+@pytest.mark.parametrize(
+    "status_code, response_body",
+    [
+        (400, {"detail": "Bad Request"}),
+        (403, {"detail": "Forbidden"}),
+        (404, {"detail": "Not Found"}),
+        (422, {"detail": "Validation Error"}),
+        (500, {"detail": "Internal Server Error"}),
+    ],
+)
+def test_proxy_upstream_errors(setup_app_and_mock_k8s_client, status_code, response_body):
+    """
+    Tests that the frontend correctly proxies various error status codes 
+    and bodies from the controller for different methods.
+    """
+    mock_httpx, client, _ = setup_app_and_mock_k8s_client
+    
+    # Configure mock to return the specific error for all methods
+    mock_httpx.post.return_value = httpx.Response(status_code, json=response_body)
+    mock_httpx.get.return_value = httpx.Response(status_code, json=response_body)
+    mock_httpx.delete.return_value = httpx.Response(status_code, json=response_body)
+
+    # Test POST /ktask
+    resp = client.post("/ktask", json={"metadata": {"name": "test"}})
+    assert resp.status_code == status_code
+    assert resp.json() == response_body
+
+    # Test GET /ktask
+    resp = client.get("/ktask")
+    assert resp.status_code == status_code
+    assert resp.json() == response_body
+
+    # Test DELETE /ktask/{name}
+    resp = client.delete("/ktask/job")
+    assert resp.status_code == status_code
+    assert resp.json() == response_body
+
+@pytest.mark.parametrize(
+    "method, endpoint, kwargs",
+    [
+        ("post", "/ktask", {"json": {"metadata": {"name": "t"}}}),
+        ("get", "/ktask", {}),
+        ("delete", "/ktask/t", {}),
+    ]
+)
+def test_controller_connection_failure(setup_app_and_mock_k8s_client, method, endpoint, kwargs):
+    """Tests that the frontend returns 503 when the controller is unreachable."""
+    mock_httpx, client, _ = setup_app_and_mock_k8s_client
+    
+    # Simulate a connection error (RequestError)
+    getattr(mock_httpx, method).side_effect = httpx.RequestError("Connection refused", request=MagicMock())
+
+    response = getattr(client, method)(endpoint, **kwargs)
+    
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Controller unavailable"}
