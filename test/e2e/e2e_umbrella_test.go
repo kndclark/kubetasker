@@ -215,7 +215,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
+					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
@@ -351,14 +351,14 @@ spec:
 
 						By("verifying that the frontend can still buffer requests under load")
 						// We submit a request while the load generator is running to ensure the async event loop isn't blocked
-						// and the buffering logic still responds with 201 Created.
+						// and the buffering logic still responds with 202 Accepted.
 						verifyName := "verify-" + safeName
 						loadKtaskJSON := fmt.Sprintf(`{"apiVersion":"task.ktasker.com/v1","kind":"Ktask","metadata":{"name":"%s","namespace":"%s"},"spec":{"image":"busybox","command":["echo","load"]}}`, verifyName, tt.namespace)
 						posterPodName := "curl-poster-" + verifyName
 						shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}", loadKtaskJSON, tt.frontendServiceName, tt.namespace)
 						output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend should accept requests even under load")
+						Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend should accept requests even under load")
 
 						By("verifying the buffered request is processed by the worker")
 						Eventually(func(g Gomega) {

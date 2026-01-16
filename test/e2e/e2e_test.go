@@ -393,7 +393,7 @@ var _ = Describe("Manager", Ordered, func() {
 				ktaskJSON, frontendServiceName, namespace)
 			output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
+			Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
 
 			By("verifying the Ktask is created asynchronously")
 			Eventually(func(g Gomega) {

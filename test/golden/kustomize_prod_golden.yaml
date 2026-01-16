@@ -852,7 +852,7 @@ spec:
       containers:
       - env:
         - name: CONTROLLER_URL
-          value: http://kubetasker-controller:8090
+          value: http://kubetasker-base-kubetasker-controller:8090
         image: ktasker.com/kubetasker-frontend:v0.0.1
         imagePullPolicy: IfNotPresent
         livenessProbe:

@@ -459,7 +459,7 @@ uninstall-prometheus: ## Uninstall kube-prometheus-stack.
 .PHONY: dashboard
 dashboard: ## Port-forward the frontend pod to localhost:8000
 	@echo "--- Port-forwarding KubeTasker Dashboard to http://localhost:8000 ..."
-	@POD_NAME=$$(kubectl get pods -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/name=kubetasker-frontend -o jsonpath='{.items[0].metadata.name}'); \
+	@POD_NAME=$$(kubectl get pods -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/name=kubetasker-frontend --no-headers -o custom-columns=":metadata.name" 2>/dev/null | head -n 1); \
 	if [ -z "$$POD_NAME" ]; then \
 	  echo "Error: frontend pod not found in namespace $(UMBRELLA_NAMESPACE)"; exit 1; \
 	fi; \

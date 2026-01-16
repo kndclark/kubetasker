@@ -205,7 +205,7 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
+					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
