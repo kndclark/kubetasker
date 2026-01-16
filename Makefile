@@ -492,6 +492,7 @@ kustomize-manifests: ## Generate the base manifests required for Kustomize overl
 		--set kubetasker-controller.certManager.namespace=$(ENV) \
 		--set kubetasker-controller.webhook.namespace=$(ENV) \
 		--set kubetasker-controller.webhook.service.namespace=$(ENV) \
+		--set kubetasker-frontend.controllerUrl=http://kubetasker-base-kubetasker-controller:8090 \
 		> kustomize/base/all.yaml
 
 	@echo "--- Copying authoritative CRD to kustomize/base/crd.yaml..."

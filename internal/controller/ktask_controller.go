@@ -351,7 +351,7 @@ func StartAPIServer(mgr ctrl.Manager, addr string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ktask", handleKtaskListCreate(mgr))
-	mux.HandleFunc("/ktask/", handleKtaskDelete(mgr))
+	mux.HandleFunc("/ktask/", handleKtaskGetDelete(mgr))
 
 	go func() {
 		log := logf.Log.WithName("api-server")
@@ -407,19 +407,16 @@ func handleKtaskListCreate(mgr ctrl.Manager) http.HandlerFunc {
 	}
 }
 
-func handleKtaskDelete(mgr ctrl.Manager) http.HandlerFunc {
+func handleKtaskGetDelete(mgr ctrl.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
 		name := strings.TrimPrefix(r.URL.Path, "/ktask/")
 		ns := r.URL.Query().Get("namespace")
 		if ns == "" {
 			ns = "default"
 		}
 
+		ctx := r.Context()
+		c := mgr.GetClient()
 		kt := &customv1.Ktask{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -427,15 +424,34 @@ func handleKtaskDelete(mgr ctrl.Manager) http.HandlerFunc {
 			},
 		}
 
-		if err := mgr.GetClient().Delete(r.Context(), kt); err != nil {
-			if errors.IsNotFound(err) {
-				http.Error(w, "Ktask not found", http.StatusNotFound)
+		switch r.Method {
+		case http.MethodGet:
+			if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, kt); err != nil {
+				if errors.IsNotFound(err) {
+					http.Error(w, "Ktask not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(kt); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 
-		w.WriteHeader(http.StatusNoContent)
+		case http.MethodDelete:
+			if err := c.Delete(ctx, kt); err != nil {
+				if errors.IsNotFound(err) {
+					http.Error(w, "Ktask not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
 	}
 }

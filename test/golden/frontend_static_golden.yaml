@@ -27,18 +27,21 @@ spec:
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
-        - containerPort: {{ .Values.service.port }}
+        - containerPort: 8000
           name: http
+        env:
+          - name: CONTROLLER_URL
+            value: {{ .Values.controllerUrl }}
         livenessProbe:
           httpGet:
-            path: /healthz
-            port: http
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.livenessProbe.httpGet.port }}
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /healthz
-            port: http
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.readinessProbe.httpGet.port }}
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:

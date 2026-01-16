@@ -92,17 +92,17 @@ async def list_ktasks(namespace: str = "default"):
 # Get a single job's status.
 @app.get("/ktask/{job_name}")
 async def get_ktask(job_name: str, namespace: str = "default"):
-    '''
+    """
     Proxy GET /ktask/{name} to the controller API.
-    Note: The controller API currently implements list (GET /ktask) and delete (DELETE /ktask/{name}).
-    For getting a single item, we might need to filter the list or add a specific endpoint in the controller.
-    For now, we will assume the controller might support it or we rely on list filtering if implemented.
-    However, based on the provided controller code, only List and Delete are implemented.
-    This endpoint might need to be adjusted to filter client-side or update controller.
-    '''
-    # Implementation omitted as controller doesn't explicitly support GET single item in the provided snippet.
-    # But we can try to proxy it anyway if the controller is updated later.
-    raise HTTPException(status_code=501, detail="Get single Ktask not implemented in controller API yet")
+    """
+    async with httpx.AsyncClient() as client:
+        try:
+            # Note: Controller expects namespace as query param for all requests if needed
+            resp = await client.get(f"{CONTROLLER_URL}/ktask/{job_name}", params={"namespace": namespace})
+            return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
+        except httpx.RequestError as exc:
+            log.error(f"An error occurred while requesting {exc.request.url!r}.")
+            raise HTTPException(status_code=503, detail="Controller unavailable")
 
 @app.delete("/ktask/{job_name}")
 async def delete_ktask(job_name: str, namespace: str = "default"):

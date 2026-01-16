@@ -663,7 +663,7 @@ var _ = Describe("Ktask Controller", func() {
 			// If the object doesn't exist, it returns 404.
 			req, _ := http.NewRequest("DELETE", "/ktask/non-existent?namespace=default", nil)
 			rr := httptest.NewRecorder()
-			handler := handleKtaskDelete(mgr)
+			handler := handleKtaskGetDelete(mgr)
 			handler.ServeHTTP(rr, req)
 
 			Expect(rr.Code).To(Equal(http.StatusNotFound))
@@ -707,7 +707,7 @@ var _ = Describe("Ktask Controller", func() {
 			failMgr := &mockManager{client: &failClient{Client: k8sClient}}
 			req, _ := http.NewRequest("DELETE", "/ktask/fail-ktask?namespace=default", nil)
 			rr := httptest.NewRecorder()
-			handler := handleKtaskDelete(failMgr)
+			handler := handleKtaskGetDelete(failMgr)
 			handler.ServeHTTP(rr, req)
 
 			Expect(rr.Code).To(Equal(http.StatusInternalServerError))

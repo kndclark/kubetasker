@@ -102,6 +102,9 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					"--set", "kubetasker-frontend.fullnameOverride=" + tt.frontendServiceName,
 					"--set", "kubetasker-controller.webhook.service.namespace=" + tt.namespace,
 					"--set", "kubetasker-controller.webhookPrefix=umbrella-" + tt.environment + "-",
+					// Disable ServiceMonitors as CRDs are not installed in the test cluster
+					"--set", "kubetasker-controller.serviceMonitor.enabled=false",
+					"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
 					"--timeout", "90s", // Add timeout to the helm command itself
 					"--wait",
 				}
@@ -212,7 +215,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
+					Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {
@@ -258,7 +261,7 @@ spec:
 						tt.frontendServiceName, tt.namespace, ktaskName, tt.namespace)
 					output, err := runInCurlPod(deleterPodName, tt.namespace, curlCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("200"))
+					Expect(strings.TrimSpace(output)).To(Equal("204"))
 
 					By("verifying the Ktask is deleted")
 					Eventually(func(g Gomega) {
@@ -348,14 +351,14 @@ spec:
 
 						By("verifying that the frontend can still buffer requests under load")
 						// We submit a request while the load generator is running to ensure the async event loop isn't blocked
-						// and the buffering logic still responds with 202 Accepted.
+						// and the buffering logic still responds with 201 Created.
 						verifyName := "verify-" + safeName
 						loadKtaskJSON := fmt.Sprintf(`{"apiVersion":"task.ktasker.com/v1","kind":"Ktask","metadata":{"name":"%s","namespace":"%s"},"spec":{"image":"busybox","command":["echo","load"]}}`, verifyName, tt.namespace)
 						posterPodName := "curl-poster-" + verifyName
 						shellCmd := fmt.Sprintf("echo '%s' > /tmp/payload.json && curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/payload.json http://%s.%s.svc.cluster.local:8000/ktask -o /dev/null -w %%{http_code}", loadKtaskJSON, tt.frontendServiceName, tt.namespace)
 						output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend should accept requests even under load")
+						Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend should accept requests even under load")
 
 						By("verifying the buffered request is processed by the worker")
 						Eventually(func(g Gomega) {
@@ -402,6 +405,8 @@ var _ = Describe("Umbrella Chart Template Verification", func() {
 				"-f", valuesFilePath,
 				"--set", "kubetasker-controller.fullnameOverride="+tt.controllerFullName,
 				"--set", "kubetasker-frontend.fullnameOverride="+tt.frontendServiceName,
+				"--set", "kubetasker-controller.serviceMonitor.enabled=false",
+				"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
 			)
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())

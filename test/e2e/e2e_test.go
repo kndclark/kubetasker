@@ -87,6 +87,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "fullnameOverride="+frontendServiceName,
+			"--set", fmt.Sprintf("controllerUrl=http://%s:8090", controllerFullName),
 			"--wait")
 		_, err = utils.Run(cmd)
 
@@ -392,7 +393,7 @@ var _ = Describe("Manager", Ordered, func() {
 				ktaskJSON, frontendServiceName, namespace)
 			output, err := runInCurlPod(posterPodName, namespace, shellCmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
+			Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
 
 			By("verifying the Ktask is created asynchronously")
 			Eventually(func(g Gomega) {
@@ -469,7 +470,7 @@ spec:
 				frontendServiceName, namespace, ktaskName, namespace)
 			output, err := runInCurlPod(deleterPodName, namespace, curlCmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("200"))
+			Expect(strings.TrimSpace(output)).To(Equal("204"))
 
 			By("verifying the Ktask is deleted")
 			Eventually(func(g Gomega) {

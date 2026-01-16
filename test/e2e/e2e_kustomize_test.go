@@ -88,6 +88,11 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 					"--set", "global.imagePullPolicy=IfNotPresent",
 					// Explicitly set the webhook service namespace for the certificate
 					"--set", "kubetasker-controller.webhook.service.namespace="+tt.namespace,
+					// Disable ServiceMonitors as CRDs are not installed in the test cluster
+					"--set", "kubetasker-controller.serviceMonitor.enabled=false",
+					"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
+					// Explicitly set the controller URL to match the Helm release name
+					"--set", fmt.Sprintf("kubetasker-frontend.controllerUrl=http://%s-kubetasker-controller:8090", tt.helmReleaseName),
 				)
 
 				// If running in CI, override resource-intensive values to ensure tests can run.
@@ -200,7 +205,7 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 
 					output, err := runInCurlPod(posterPodName, tt.namespace, shellCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("202"), "Frontend service should return 202 Accepted")
+					Expect(strings.TrimSpace(output)).To(Equal("201"), "Frontend service should return 201 Created")
 
 					By("verifying the underlying Job is created and completes successfully")
 					Eventually(func(g Gomega) {

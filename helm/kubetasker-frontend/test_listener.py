@@ -4,6 +4,7 @@ import pytest
 import json
 import asyncio
 import httpx
+import os
 
 @pytest.fixture(autouse=True)
 def setup_app_and_mock_k8s_client():
@@ -20,7 +21,7 @@ def setup_app_and_mock_k8s_client():
 
     # Patch the config loading functions to do nothing.
     # These patches are active during the import of `listener.py`.
-    with patch('os.getenv', return_value='development'), \
+    with patch.dict(os.environ, {'KUBETASKER_ENV': 'development', 'CONTROLLER_URL': 'http://localhost:8090'}), \
          patch('kubernetes.config.load_incluster_config'), \
          patch('kubernetes.config.load_kube_config'), \
          patch.dict('sys.modules', {
