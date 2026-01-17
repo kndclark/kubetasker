@@ -38,10 +38,6 @@ var _ = Describe("Prometheus Integration", Ordered, func() {
 		cmd := exec.Command("helm", "uninstall", testRelease, "--namespace", testNamespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 		
-		// Some controllers might be in kube-system or other namespaces if installed via different means
-		cmd = exec.Command("kubectl", "delete", "deployment", "kubetasker-controller", "-n", "kube-system", "--ignore-not-found")
-		_, _ = utils.Run(cmd)
-
 		// Check if Prometheus is already installed
 		By("checking if Prometheus is already installed")
 		cmd = exec.Command("kubectl", "get", "namespace", prometheusNamespace)
@@ -288,5 +284,10 @@ spec:
 				"-n", testNamespace, "--ignore-not-found")
 			_, _ = utils.Run(cmd)
 		})
+	})
+	
+	AfterAll(func() {
+		By("cleaning up Prometheus test specific global resources")
+		CleanupStaleClusterResources()
 	})
 })

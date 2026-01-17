@@ -14,6 +14,37 @@ automountServiceAccountToken: true
 ---
 # Source: kubetasker-frontend/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubetasker-frontend-test-cluster-role
+  labels:
+    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/name: kubetasker-frontend
+    app.kubernetes.io/instance: kubetasker-frontend-test
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups: ["task.ktasker.com"]
+  resources: ["ktasks"]
+  verbs: ["get", "list"]
+---
+# Source: kubetasker-frontend/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubetasker-frontend-test-cluster-role-binding
+subjects:
+- kind: ServiceAccount
+  name: kubetasker-frontend-test
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kubetasker-frontend-test-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: kubetasker-frontend/templates/rbac.yaml
+# Keep a local Role for other operations if needed, but for listing ktasks cluster-wide we use the ClusterRole above
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kubetasker-frontend-test

@@ -848,6 +848,11 @@ spec:
 			}, 3*time.Minute).Should(Succeed())
 		})
 	})
+	
+	AfterAll(func() {
+		By("cleaning up Manager test specific global resources")
+		CleanupStaleClusterResources()
+	})
 })
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.

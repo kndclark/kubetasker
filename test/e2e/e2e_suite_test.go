@@ -128,7 +128,60 @@ var _ = BeforeSuite(func() {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: metrics-server is already installed. Skipping installation...\n")
 		}
 	}
+
+	// Always clean up cluster-scoped resources before any tests run to prevent poisoning
+	CleanupStaleClusterResources()
 })
+
+// CleanupStaleClusterResources aggressively deletes global resources like webhooks and clusterroles
+// that might have been left over from previous failed or interrupted test runs.
+func CleanupStaleClusterResources() {
+	By("scrubbing stale cluster-scoped resources")
+	
+	// Patterns for stale webhooks
+	webhookPatterns := []string{
+		"kt-prom-kubetasker-controller",
+		"kubetasker-dev-kubetasker-controller",
+		"kubetasker-staging-kubetasker-controller",
+		"kubetasker-prod-kubetasker-controller",
+		"kubetasker-e2e-kubetasker-controller",
+		"kubetasker-kubetasker-controller",
+		"kubetasker-controller",
+	}
+
+	for _, p := range webhookPatterns {
+		mutating := p + "-mutating-webhook-configuration"
+		validating := p + "-validating-webhook-configuration"
+		
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", mutating, "--ignore-not-found"))
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfiguration", validating, "--ignore-not-found"))
+	}
+
+	// Also try deleting by label just in case
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", "-l", "app.kubernetes.io/part-of=kubetasker", "--ignore-not-found"))
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfiguration", "-l", "app.kubernetes.io/part-of=kubetasker", "--ignore-not-found"))
+
+	// Stale ClusterRoles/Bindings
+	rbacPatterns := []string{
+		"kt-prom-kubetasker-controller-manager-role",
+		"kt-prom-kubetasker-controller-metrics-reader",
+		"kt-prom-kubetasker-controller-proxy-role",
+		"kt-prom-kubetasker-frontend-cluster-role",
+		"kubetasker-dev-kubetasker-frontend-cluster-role",
+		"kubetasker-staging-kubetasker-frontend-cluster-role",
+		"kubetasker-prod-kubetasker-frontend-cluster-role",
+		"kubetasker-e2e-kubetasker-frontend-cluster-role",
+	}
+
+	for _, p := range rbacPatterns {
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrole", p, "--ignore-not-found"))
+		bindingName := p + "binding"
+		if strings.HasSuffix(p, "-role") {
+			bindingName = strings.TrimSuffix(p, "-role") + "-rolebinding"
+		}
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", bindingName, "--ignore-not-found"))
+	}
+}
 
 var _ = AfterSuite(func() {
 	// Teardown CertManager after the suite if not skipped and if it was not already installed

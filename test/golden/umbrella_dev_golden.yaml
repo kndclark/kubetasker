@@ -127,6 +127,22 @@ rules:
   verbs:
   - get
 ---
+# Source: kubetasker/charts/kubetasker-frontend/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: umbrella-dev-kubetasker-frontend-cluster-role
+  labels:
+    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/name: kubetasker-frontend
+    app.kubernetes.io/instance: umbrella-dev
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups: ["task.ktasker.com"]
+  resources: ["ktasks"]
+  verbs: ["get", "list"]
+---
 # Source: kubetasker/charts/kubetasker-controller/templates/manager-clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -187,6 +203,20 @@ subjects:
   name: umbrella-dev-kubetasker-controller
   namespace: default
 ---
+# Source: kubetasker/charts/kubetasker-frontend/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: umbrella-dev-kubetasker-frontend-cluster-role-binding
+subjects:
+- kind: ServiceAccount
+  name: umbrella-dev-kubetasker-frontend
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: umbrella-dev-kubetasker-frontend-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
 # Source: kubetasker/charts/kubetasker-controller/templates/leader-election-role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -233,6 +263,7 @@ rules:
   - patch
 ---
 # Source: kubetasker/charts/kubetasker-frontend/templates/rbac.yaml
+# Keep a local Role for other operations if needed, but for listing ktasks cluster-wide we use the ClusterRole above
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
