@@ -356,7 +356,6 @@ func StartAPIServer(mgr ctrl.Manager, addr string) {
 	go func() {
 		log := logf.Log.WithName("api-server")
 		log.Info("Starting API server", "address", addr)
-		// Use http.Server with timeouts to address gosec G114
 		srv := &http.Server{
 			Addr:         addr,
 			Handler:      mux,
