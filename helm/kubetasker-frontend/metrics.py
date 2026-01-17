@@ -7,35 +7,25 @@ from collections import defaultdict
 from kubernetes import client, config
 from prometheus_client import Gauge
 
-logger = logging.getLogger("kubetasker_frontend.metrics")
+# Use uvicorn logger for visibility in pod logs
+logger = logging.getLogger("uvicorn.error")
 
 # Prometheus Metrics
-# Tracks the number of Ktasks by phase in the current namespace
+# Tracks the number of Ktasks by phase cluster-wide
 KTASK_STATUS_COUNT = Gauge(
     "ktask_status_count",
     "Number of Ktasks by status phase",
     ["namespace", "phase"]
 )
 
-def get_current_namespace():
-    """
-    Detects the namespace the pod is running in.
-    """
-    # Standard path for service account namespace
-    ns_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-    if os.path.exists(ns_path):
-        with open(ns_path, "r") as f:
-            return f.read().strip()
-    # Fallback for local development
-    return os.environ.get("KUBERNETES_NAMESPACE", "default")
-
 def collect_metrics_loop():
     """
     Background thread that queries the Kubernetes API for Ktask resources
-    and updates the Prometheus metrics.
+    across all namespaces and updates the Prometheus metrics.
     """
+    logger.info("Initializing metrics collector thread...")
+    
     # Load Kubernetes configuration
-    # We attempt to load config independently here to ensure the thread is self-contained
     try:
         config.load_incluster_config()
     except config.ConfigException:
@@ -46,19 +36,17 @@ def collect_metrics_loop():
             return
 
     api = client.CustomObjectsApi()
-    namespace = get_current_namespace()
-    
-    logger.info(f"Starting Ktask metrics collector for namespace: {namespace}")
+    logger.info("Ktask metrics collector started successfully")
 
     while True:
         try:
-            # List Ktasks in the current namespace
-            # Group: task.ktasker.com, Version: v1, Plural: ktasks
-            response = api.list_namespaced_custom_object(
-                group="task.ktasker.com",
-                version="v1",
-                namespace=namespace,
-                plural="ktasks"
+            # List Ktasks cluster-wide (across all namespaces)
+            # Some versions use 'plural', some use 'resource_plural'
+            # Using positional arguments to be safe
+            response = api.list_custom_object_for_all_namespaces(
+                "task.ktasker.com",
+                "v1",
+                "ktasks"
             )
 
             # Reset counts for this iteration
@@ -66,20 +54,25 @@ def collect_metrics_loop():
             
             items = response.get("items", [])
             for item in items:
+                metadata = item.get("metadata", {})
+                ns = metadata.get("namespace", "unknown")
                 status = item.get("status", {})
                 phase = status.get("phase", "Unknown")
-                counts[phase] += 1
+                counts[(ns, phase)] += 1
 
             # Update Gauges
             KTASK_STATUS_COUNT.clear()
-            for phase, count in counts.items():
-                KTASK_STATUS_COUNT.labels(namespace=namespace, phase=phase).set(count)
-
+            
+            if not counts:
+                logger.debug("No Ktasks found in any namespace")
+            
+            for (ns, phase), count in counts.items():
+                KTASK_STATUS_COUNT.labels(namespace=ns, phase=phase).set(count)
+                
         except client.exceptions.ApiException as e:
             logger.error(f"Kubernetes API error collecting Ktask metrics: {e}")
         except Exception as e:
-            logger.exception("Unexpected error in metrics collector")
-
+            logger.error(f"Unexpected error in metrics collector: {str(e)}")
 
         # Scrape interval (30s matches the ServiceMonitor interval)
         time.sleep(30)
