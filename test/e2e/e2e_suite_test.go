@@ -78,6 +78,13 @@ var _ = BeforeSuite(func() {
 
 	By("building the frontend API image")
 	frontendDir := filepath.Join(chartsRoot, "kubetasker-frontend")
+
+	// Copy requirements.txt to frontend directory so it is available in the build context
+	cmd = exec.Command("cp", filepath.Join(projectRootDir, "requirements.txt"), filepath.Join(frontendDir, "requirements.txt"))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to copy requirements.txt to frontend dir")
+	defer os.Remove(filepath.Join(frontendDir, "requirements.txt"))
+
 	dockerfilePath := filepath.Join(frontendDir, "Dockerfile")
 	cmd = exec.Command("docker", "build", "-t", frontendImage, "-f", dockerfilePath, frontendDir)
 	_, err = utils.Run(cmd)

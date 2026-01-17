@@ -18,6 +18,7 @@ packaging
 pluggy
 pyasn1
 pyasn1_modules
+prometheus-client
 pydantic
 pydantic_core
 Pygments
@@ -36,3 +37,5 @@ urllib3>=2.5.0
 websocket-client
 pytest-asyncio
 uvicorn
+httpx
+prometheus-client

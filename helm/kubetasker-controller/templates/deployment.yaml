@@ -44,18 +44,24 @@ spec:
         {{- end }}
       containers:
       - name: manager
+        ports:
+        - containerPort: {{ .Values.service.targetPort }}
+          name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
         - --metrics-bind-address=:8443
         - --leader-elect
-        - --health-probe-bind-address=:{{ .Values.service.port }}
+        - --health-probe-bind-address=:{{ .Values.service.healthPort }}
         - --default-job-cpu-request={{ .Values.jobDefaultResources.requests.cpu }}
         - --default-job-memory-request={{ .Values.jobDefaultResources.requests.memory }}
         - --default-job-cpu-limit={{ .Values.jobDefaultResources.limits.cpu }}
         - --default-job-memory-limit={{ .Values.jobDefaultResources.limits.memory }}
         image: "{{ include "kubetasker-controller.image" . }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        imagePullPolicy: {{ if .Values.global }}{{ .Values.global.imagePullPolicy | default .Values.image.pullPolicy }}{{ else }}{{ .Values.image.pullPolicy }}{{ end }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

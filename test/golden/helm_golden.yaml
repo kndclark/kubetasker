@@ -264,6 +264,35 @@ spec:
     app.kubernetes.io/instance: kubetasker-controller-test
     control-plane: controller-manager
 ---
+# Source: kubetasker-controller/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubetasker-controller-test
+  namespace: default
+  labels:
+    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: kubetasker-controller-test
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+    control-plane: controller-manager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8090
+      targetPort: 8090
+      protocol: TCP
+      name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: kubetasker-controller-test
+    control-plane: controller-manager
+---
 # Source: kubetasker-controller/templates/webhook-service.yaml
 apiVersion: v1
 kind: Service
@@ -322,12 +351,22 @@ spec:
           type: RuntimeDefault
       containers:
       - name: manager
+        ports:
+        - containerPort: 8090
+          name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --default-job-cpu-request=100m
+        - --default-job-memory-request=128Mi
+        - --default-job-cpu-limit=100m
+        - --default-job-memory-limit=128Mi
         image: "ktasker.com/kubetasker:v0.0.1"
         imagePullPolicy: IfNotPresent
         securityContext:
@@ -349,11 +388,11 @@ spec:
           periodSeconds: 10
         resources:
           limits:
-            cpu: 500m
+            cpu: 100m
             memory: 128Mi
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 100m
+            memory: 128Mi
         volumeMounts:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-certs

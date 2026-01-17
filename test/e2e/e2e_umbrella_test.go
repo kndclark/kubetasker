@@ -97,11 +97,16 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					"--set", fmt.Sprintf("kubetasker-controller.image.tag=%s", strings.Split(projectImage, ":")[1]),
 					"--set", fmt.Sprintf("kubetasker-frontend.image.repository=%s", strings.Split(frontendImage, ":")[0]),
 					"--set", fmt.Sprintf("kubetasker-frontend.image.tag=%s", strings.Split(frontendImage, ":")[1]),
+					// Use locally loaded images instead of pulling from registry
+					"--set", "global.imagePullPolicy=IfNotPresent",
 					// Override names for test isolation
 					"--set", "kubetasker-controller.fullnameOverride=" + tt.controllerFullName,
 					"--set", "kubetasker-frontend.fullnameOverride=" + tt.frontendServiceName,
 					"--set", "kubetasker-controller.webhook.service.namespace=" + tt.namespace,
 					"--set", "kubetasker-controller.webhookPrefix=umbrella-" + tt.environment + "-",
+					// Disable ServiceMonitors as CRDs are not installed in the test cluster
+					"--set", "kubetasker-controller.serviceMonitor.enabled=false",
+					"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
 					"--timeout", "90s", // Add timeout to the helm command itself
 					"--wait",
 				}
@@ -258,7 +263,7 @@ spec:
 						tt.frontendServiceName, tt.namespace, ktaskName, tt.namespace)
 					output, err := runInCurlPod(deleterPodName, tt.namespace, curlCmd)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(strings.TrimSpace(output)).To(Equal("200"))
+					Expect(strings.TrimSpace(output)).To(Equal("204"))
 
 					By("verifying the Ktask is deleted")
 					Eventually(func(g Gomega) {
@@ -402,6 +407,8 @@ var _ = Describe("Umbrella Chart Template Verification", func() {
 				"-f", valuesFilePath,
 				"--set", "kubetasker-controller.fullnameOverride="+tt.controllerFullName,
 				"--set", "kubetasker-frontend.fullnameOverride="+tt.frontendServiceName,
+				"--set", "kubetasker-controller.serviceMonitor.enabled=false",
+				"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
 			)
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
