@@ -42,3 +42,11 @@ kubetasker-frontend:
               values:
               - kubetasker-frontend
           topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-role
+            operator: In
+            values:
+            - general

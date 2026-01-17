@@ -140,6 +140,7 @@ func CleanupStaleClusterResources() {
 	
 	// Patterns for stale webhooks
 	webhookPatterns := []string{
+		"kt-sched-kubetasker-controller",
 		"kt-prom-kubetasker-controller",
 		"kubetasker-dev-kubetasker-controller",
 		"kubetasker-staging-kubetasker-controller",
