@@ -160,9 +160,7 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 				By(fmt.Sprintf("deleting the %s namespace", tt.namespace))
 				cmd = exec.Command("kubectl", "delete", "ns", tt.namespace, "--ignore-not-found")
 				_, _ = utils.Run(cmd)
-			})
 
-			AfterAll(func() {
 				By("cleaning up Umbrella test specific global resources")
 				CleanupStaleClusterResources()
 			})
