@@ -161,7 +161,8 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 				cmd = exec.Command("kubectl", "delete", "ns", tt.namespace, "--ignore-not-found")
 				_, _ = utils.Run(cmd)
 
-				cleanupWebhookConfigurations(tt.controllerFullName)
+				By("cleaning up Umbrella test specific global resources")
+				CleanupStaleClusterResources()
 			})
 
 			AfterEach(func() {

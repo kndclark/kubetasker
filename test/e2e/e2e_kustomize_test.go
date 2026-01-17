@@ -242,4 +242,9 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 			}
 		})
 	}
+	
+	AfterAll(func() {
+		By("cleaning up Kustomize test specific global resources")
+		CleanupStaleClusterResources()
+	})
 })

@@ -10,7 +10,7 @@ import asyncio
 import httpx
 from typing import List, Optional
 from contextlib import asynccontextmanager
-from prometheus_client import make_asgi_app
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 import metrics
 
@@ -160,8 +160,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # Expose Prometheus metrics
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
+@app.get("/metrics")
+async def metrics_handler():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Serve the GUI
 @app.get("/", response_class=HTMLResponse)
