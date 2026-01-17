@@ -97,6 +97,8 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					"--set", fmt.Sprintf("kubetasker-controller.image.tag=%s", strings.Split(projectImage, ":")[1]),
 					"--set", fmt.Sprintf("kubetasker-frontend.image.repository=%s", strings.Split(frontendImage, ":")[0]),
 					"--set", fmt.Sprintf("kubetasker-frontend.image.tag=%s", strings.Split(frontendImage, ":")[1]),
+					// Use locally loaded images instead of pulling from registry
+					"--set", "global.imagePullPolicy=IfNotPresent",
 					// Override names for test isolation
 					"--set", "kubetasker-controller.fullnameOverride=" + tt.controllerFullName,
 					"--set", "kubetasker-frontend.fullnameOverride=" + tt.frontendServiceName,

@@ -326,6 +326,10 @@ spec:
       targetPort: 8090
       protocol: TCP
       name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
   selector:
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: umbrella-staging
@@ -414,6 +418,9 @@ spec:
         ports:
         - containerPort: 8090
           name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
@@ -425,7 +432,7 @@ spec:
         - --default-job-cpu-limit=100m
         - --default-job-memory-limit=128Mi
         image: "controller:v0.0.1"
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -487,7 +494,7 @@ spec:
       containers:
       - name: frontend-container
         image: "ktasker.com/kubetasker-frontend:v0.0.1"
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
           name: http

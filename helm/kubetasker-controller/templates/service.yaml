@@ -13,6 +13,10 @@ spec:
       targetPort: {{ .Values.service.targetPort | default 8090 }}
       protocol: TCP
       name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
   selector:
     {{- include "kubetasker-controller.selectorLabels" . | nindent 4 }}
     control-plane: controller-manager

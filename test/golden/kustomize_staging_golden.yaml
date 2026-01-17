@@ -672,6 +672,10 @@ spec:
     port: 8090
     protocol: TCP
     targetPort: 8090
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
   selector:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/name: kubetasker-controller
@@ -793,6 +797,9 @@ spec:
         ports:
         - containerPort: 8090
           name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz

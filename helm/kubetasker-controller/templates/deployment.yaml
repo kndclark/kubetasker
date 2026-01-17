@@ -47,6 +47,9 @@ spec:
         ports:
         - containerPort: {{ .Values.service.targetPort }}
           name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
@@ -58,7 +61,7 @@ spec:
         - --default-job-cpu-limit={{ .Values.jobDefaultResources.limits.cpu }}
         - --default-job-memory-limit={{ .Values.jobDefaultResources.limits.memory }}
         image: "{{ include "kubetasker-controller.image" . }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        imagePullPolicy: {{ if .Values.global }}{{ .Values.global.imagePullPolicy | default .Values.image.pullPolicy }}{{ else }}{{ .Values.image.pullPolicy }}{{ end }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

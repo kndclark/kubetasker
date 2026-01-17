@@ -326,6 +326,10 @@ spec:
       targetPort: 8090
       protocol: TCP
       name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
   selector:
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: umbrella-prod
@@ -414,6 +418,9 @@ spec:
         ports:
         - containerPort: 8090
           name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
@@ -513,6 +520,18 @@ spec:
           requests:
             cpu: 200m
             memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - kubetasker-frontend
+              topologyKey: kubernetes.io/hostname
+            weight: 100
 ---
 # Source: kubetasker/charts/kubetasker-controller/templates/webhooks.yaml
 apiVersion: admissionregistration.k8s.io/v1
