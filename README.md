@@ -25,7 +25,11 @@ KubeTasker consists of two main components:
 1.  **`kubetasker-controller`**: The Go-based Kubernetes controller that watches for `Ktask` resources and creates, manages, and cleans up the corresponding Kubernetes `Job`s.
 2.  **`kubetasker-frontend`**: A Python-based web service that exposes a REST API (`/ktask`) and a web GUI for creating and managing `Ktask` resources.
 
-The project uses a Kustomize structure to manage configurations for different environments. The `base` contains the common resources, and the `overlays` apply environment-specific patches (e.g., for `dev`, `staging`, `prod`).
+### Deployment Options
+
+*   **Umbrella Chart**: A unified Helm chart in `helm/kubetasker` that deploys both the controller and frontend (and optionally `cert-manager` and `kube-prometheus-stack`).
+*   **Kustomize Overlays**: Environment-specific configurations (`dev`, `staging`, `prod`) that use Helm to template the base manifests.
+*   **Individual Charts**: Separate Helm charts for `kubetasker-controller` and `kubetasker-frontend` for granular control.
 
 ```
 kustomize/
@@ -54,34 +58,42 @@ Running `kubectl apply -k kustomize/overlays/<env>` will build and deploy the ma
 
 ### Deployment
 
-You can deploy KubeTasker using Kustomize (which wraps Helm) or by using Helm directly.
+You can deploy KubeTasker using the unified Umbrella Chart, Kustomize, or individual Helm charts.
 
-#### Using Helm
+#### 1. Unified Deployment (Umbrella Chart)
 
-For more direct control, you can deploy KubeTasker using its Helm chart located in `helm/kubetasker`. This project provides pre-configured values files for different environments:
+The recommended way to deploy the full KubeTasker stack is using the umbrella chart in `helm/kubetasker`.
 
-*   `helm/kubetasker/values-dev.yaml`: Minimal resources suitable for local development.
-*   `helm/kubetasker/values-staging.yaml`: Increased resources and replicas for staging/testing environments.
-*   `helm/kubetasker/values-prod.yaml`: Production-ready configuration with higher resources, more replicas, and pod anti-affinity for high availability.
-
-To deploy to a specific environment, use the `-f` flag with `helm install`.
-
-**Deploy to Development:**
+**Deploy to Development (K8s Namespace: `kubetasker-system`):**
 ```sh
-helm install kubetasker-dev helm/kubetasker -f helm/kubetasker/values-dev.yaml --namespace dev --create-namespace
+make deploy-umbrella
 ```
 
-**Deploy to Staging:**
+**Deploy to Staging/Production:**
 ```sh
-helm install kubetasker-staging helm/kubetasker -f helm/kubetasker/values-staging.yaml --namespace staging --create-namespace
+# Staging
+helm upgrade --install kubetasker helm/kubetasker -f helm/kubetasker/values-staging.yaml --namespace staging --create-namespace
+# Production
+helm upgrade --install kubetasker helm/kubetasker -f helm/kubetasker/values-prod.yaml --namespace prod --create-namespace
 ```
 
-**Deploy to Production:**
-```sh
-helm install kubetasker-prod helm/kubetasker -f helm/kubetasker/values-prod.yaml --namespace prod --create-namespace
-```
+#### 2. Monitoring with Prometheus
 
-#### Using Kustomize
+KubeTasker comes with built-in support for Prometheus monitoring.
+
+**Install Prometheus Stack & KubeTasker with Monitoring:**
+```sh
+make deploy-monitoring
+```
+This command:
+1. Installs the `kube-prometheus-stack` (Prometheus, Grafana, Operator).
+2. Deploys KubeTasker with `ServiceMonitor` resources enabled.
+
+**Access Dashboards:**
+*   **Prometheus**: `make dashboard-prometheus` (http://localhost:9090)
+*   **Grafana**: `make dashboard-grafana` (See [PROMETHEUS_SETUP.md](docs/PROMETHEUS_SETUP.md) for credentials)
+
+#### 3. Using Kustomize
 
 1.  **Clone the repository:**
     ```sh
@@ -153,17 +165,18 @@ KubeTasker includes a web-based dashboard for creating and monitoring tasks.
 
 1.  **Port-forward the frontend service:**
     ```sh
-    kubectl port-forward svc/kubetasker-dev-kubetasker-frontend 8000:8000 -n dev
-    ```
-    - Optional: for rapid testing/ prototyping, simply do
-    ```sh
-    make setup-test-e2e && make deploy-umbrella && make run-frontend-dev
+    make dashboard
+    # Or manually:
+    # kubectl port-forward svc/kubetasker-kubetasker-frontend 8000:8000 -n kubetasker-system
     ```
 
 2.  **Open the Dashboard:**
     Navigate to [http://localhost:8000](http://localhost:8000) in your browser.
 
-    From the dashboard, you can create new tasks via a form and view the status of existing tasks in the current namespace.
+    From the dashboard, you can:
+    *   **Create**: Fill out the form to launch a new `Ktask`.
+    *   **Monitor**: View real-time status updates for tasks in the selector namespace.
+    *   **Delete**: Click the "Delete" button next to any task to remove it and its associated Kubernetes resources.
 
 ### Using the REST API
 
@@ -171,19 +184,29 @@ The `kubetasker-frontend` service provides a REST endpoint for creating `Ktasks`
 
 1.  **Port-forward the frontend service:**
     ```sh
-    kubectl port-forward svc/kubetasker-dev-kubetasker-frontend 8000:8000 -n dev
+    make dashboard
     ```
 
-2.  **Send a POST request with `curl`:**
+2.  **Create a Ktask (POST):**
     ```sh
     curl -X POST http://localhost:8000/ktask \
     -H "Content-Type: application/json" \
     -d '{
       "apiVersion": "task.ktasker.com/v1",
       "kind": "Ktask",
-      "metadata": { "name": "hello-from-api", "namespace": "dev" },
-      "spec": { "image": "busybox", "command": ["echo", "Hello from the API"] }
+      "metadata": { "name": "hello-api", "namespace": "default" },
+      "spec": { "image": "busybox", "command": ["echo", "Hello from API"] }
     }'
+    ```
+
+3.  **List Ktasks (GET):**
+    ```sh
+    curl http://localhost:8000/ktask?namespace=default
+    ```
+
+4.  **Delete a Ktask (DELETE):**
+    ```sh
+    curl -X DELETE http://localhost:8000/ktask/hello-api?namespace=default
     ```
 
 ## 💻 Development & Testing
