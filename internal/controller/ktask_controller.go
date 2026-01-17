@@ -356,7 +356,15 @@ func StartAPIServer(mgr ctrl.Manager, addr string) {
 	go func() {
 		log := logf.Log.WithName("api-server")
 		log.Info("Starting API server", "address", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		// Use http.Server with timeouts to address gosec G114
+		srv := &http.Server{
+			Addr:         addr,
+			Handler:      mux,
+			ReadTimeout:  15 * time.Second,
+			WriteTimeout: 15 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		if err := srv.ListenAndServe(); err != nil {
 			log.Error(err, "API server failed")
 		}
 	}()
@@ -399,7 +407,9 @@ func handleKtaskListCreate(mgr ctrl.Manager) http.HandlerFunc {
 				return
 			}
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(kt)
+			if err := json.NewEncoder(w).Encode(kt); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
