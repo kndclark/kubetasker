@@ -34,3 +34,5 @@ typing-inspection
 typing_extensions
 urllib3>=2.5.0
 websocket-client
+pytest-asyncio
+uvicorn

@@ -21,6 +21,8 @@ import (
 	"flag"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/rest"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -65,6 +67,7 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var defaultJobCPURequest, defaultJobMemoryRequest, defaultJobCPULimit, defaultJobMemoryLimit string
 
 	fs := flag.NewFlagSet("kubetasker", flag.ContinueOnError)
 	fs.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -84,6 +87,10 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 	fs.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	fs.StringVar(&defaultJobCPURequest, "default-job-cpu-request", "100m", "Default CPU request for jobs")
+	fs.StringVar(&defaultJobMemoryRequest, "default-job-memory-request", "128Mi", "Default memory request for jobs")
+	fs.StringVar(&defaultJobCPULimit, "default-job-cpu-limit", "100m", "Default CPU limit for jobs")
+	fs.StringVar(&defaultJobMemoryLimit, "default-job-memory-limit", "128Mi", "Default memory limit for jobs")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -159,6 +166,27 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	// Helper to parse resource quantities
+	parseQuantity := func(val string) resource.Quantity {
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			setupLog.Error(err, "invalid resource quantity", "value", val)
+			os.Exit(1)
+		}
+		return q
+	}
+
+	defaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    parseQuantity(defaultJobCPURequest),
+			corev1.ResourceMemory: parseQuantity(defaultJobMemoryRequest),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    parseQuantity(defaultJobCPULimit),
+			corev1.ResourceMemory: parseQuantity(defaultJobMemoryLimit),
+		},
+	}
+
 	mgr, err := newManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -182,8 +210,9 @@ func run(cfg *rest.Config, scheme *runtime.Scheme, args []string) error {
 		return err
 	}
 	if err := (&controller.KtaskReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		DefaultResources: defaultResources,
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}

@@ -23,7 +23,7 @@ KubeTasker is currently under active development and should be considered experi
 KubeTasker consists of two main components:
 
 1.  **`kubetasker-controller`**: The Go-based Kubernetes controller that watches for `Ktask` resources and creates, manages, and cleans up the corresponding Kubernetes `Job`s.
-2.  **`kubetasker-frontend`**: A Python-based web service that exposes a REST API (`/ktask`) for creating `Ktask` resources programmatically.
+2.  **`kubetasker-frontend`**: A Python-based web service that exposes a REST API (`/ktask`) and a web GUI for creating and managing `Ktask` resources.
 
 The project uses a Kustomize structure to manage configurations for different environments. The `base` contains the common resources, and the `overlays` apply environment-specific patches (e.g., for `dev`, `staging`, `prod`).
 
@@ -147,6 +147,24 @@ Once deployed, you can create a `Ktask` to run a job.
     kubectl logs -n dev -l job-name=hello-world-task-job
     ```
 
+### Using the GUI Dashboard
+
+KubeTasker includes a web-based dashboard for creating and monitoring tasks.
+
+1.  **Port-forward the frontend service:**
+    ```sh
+    kubectl port-forward svc/kubetasker-dev-kubetasker-frontend 8000:8000 -n dev
+    ```
+    - Optional: for rapid testing/ prototyping, simply do
+    ```sh
+    make setup-test-e2e && make deploy-umbrella && make run-frontend-dev
+    ```
+
+2.  **Open the Dashboard:**
+    Navigate to [http://localhost:8000](http://localhost:8000) in your browser.
+
+    From the dashboard, you can create new tasks via a form and view the status of existing tasks in the current namespace.
+
 ### Using the REST API
 
 The `kubetasker-frontend` service provides a REST endpoint for creating `Ktasks`. This is useful for programmatic access or integration with other services.
@@ -197,10 +215,17 @@ For a faster development loop, you can run the controller and frontend locally a
     make run-local
     ```
 
-2.  **In a separate terminal, run the frontend locally:**
-    This command builds and runs the frontend container, exposing it on `localhost:8000`.
+2.  **Run the frontend locally:**
+    You can run the frontend in a container or directly with Python (faster for development).
+
+    **Option A: Run in Docker**
     ```sh
     make run-frontend-local
+    ```
+
+    **Option B: Run with Uvicorn (requires `make pyenv`)**
+    ```sh
+    make run-frontend-dev
     ```
 
 ## 🤝 Contributing
