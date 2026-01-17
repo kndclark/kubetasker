@@ -246,7 +246,7 @@ metadata:
 rules:
 - apiGroups: ["task.ktasker.com"]
   resources: ["ktasks"]
-  verbs: ["get", "list", "create"]
+  verbs: ["get", "list", "create", "delete"]
 ---
 # Source: kubetasker/charts/kubetasker-controller/templates/leader-election-rolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -306,6 +306,35 @@ spec:
     app.kubernetes.io/instance: umbrella-prod
     control-plane: controller-manager
 ---
+# Source: kubetasker/charts/kubetasker-controller/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: umbrella-prod-kubetasker-controller
+  namespace: default
+  labels:
+    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: umbrella-prod
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+    control-plane: controller-manager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8090
+      targetPort: 8090
+      protocol: TCP
+      name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: umbrella-prod
+    control-plane: controller-manager
+---
 # Source: kubetasker/charts/kubetasker-controller/templates/webhook-service.yaml
 apiVersion: v1
 kind: Service
@@ -345,9 +374,10 @@ spec:
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: umbrella-prod
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 8000
-      targetPort: http
+      targetPort: 8000
 ---
 # Source: kubetasker/charts/kubetasker-controller/templates/deployment.yaml
 # Note: This file was copied from config/manager/manager.yaml and adapted for Helm.
@@ -385,12 +415,22 @@ spec:
           type: RuntimeDefault
       containers:
       - name: manager
+        ports:
+        - containerPort: 8090
+          name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --default-job-cpu-request=100m
+        - --default-job-memory-request=128Mi
+        - --default-job-cpu-limit=100m
+        - --default-job-memory-limit=128Mi
         image: "controller:v0.0.1"
         imagePullPolicy: IfNotPresent
         securityContext:
@@ -458,16 +498,19 @@ spec:
         ports:
         - containerPort: 8000
           name: http
+        env:
+          - name: CONTROLLER_URL
+            value: http://kubetasker-controller:8090
         livenessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
@@ -477,6 +520,18 @@ spec:
           requests:
             cpu: 200m
             memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - kubetasker-frontend
+              topologyKey: kubernetes.io/hostname
+            weight: 100
 ---
 # Source: kubetasker/charts/kubetasker-controller/templates/webhooks.yaml
 apiVersion: admissionregistration.k8s.io/v1

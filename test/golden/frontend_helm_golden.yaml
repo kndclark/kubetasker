@@ -26,7 +26,7 @@ metadata:
 rules:
 - apiGroups: ["task.ktasker.com"]
   resources: ["ktasks"]
-  verbs: ["get", "list", "create"]
+  verbs: ["get", "list", "create", "delete"]
 ---
 # Source: kubetasker-frontend/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -58,9 +58,10 @@ spec:
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 8000
-      targetPort: http
+      targetPort: 8000
 ---
 # Source: kubetasker-frontend/templates/deployment.yaml
 apiVersion: apps/v1
@@ -93,17 +94,25 @@ spec:
         ports:
         - containerPort: 8000
           name: http
+        env:
+          - name: CONTROLLER_URL
+            value: http://kubetasker-controller:8090
         livenessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
-          {}
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi

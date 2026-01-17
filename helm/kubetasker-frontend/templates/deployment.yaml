@@ -25,21 +25,36 @@ spec:
       containers:
       - name: frontend-container
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        imagePullPolicy: {{ if .Values.global }}{{ .Values.global.imagePullPolicy | default .Values.image.pullPolicy }}{{ else }}{{ .Values.image.pullPolicy }}{{ end }}
         ports:
         - containerPort: 8000
           name: http
+        env:
+          - name: CONTROLLER_URL
+            value: {{ .Values.controllerUrl }}
         livenessProbe:
           httpGet:
-            path: /healthz
-            port: http
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.livenessProbe.httpGet.port }}
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /healthz
-            port: http
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.readinessProbe.httpGet.port }}
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

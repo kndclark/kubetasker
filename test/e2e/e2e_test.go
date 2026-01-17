@@ -87,6 +87,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--set", fmt.Sprintf("image.tag=%s", strings.Split(frontendImage, ":")[1]),
 			"--set", "image.pullPolicy=IfNotPresent",
 			"--set", "fullnameOverride="+frontendServiceName,
+			"--set", fmt.Sprintf("controllerUrl=http://%s:8090", controllerFullName),
 			"--wait")
 		_, err = utils.Run(cmd)
 
@@ -212,7 +213,7 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred(), "Metrics service should exist")
 
 			By("getting the service account token")
-			token, err := serviceAccountToken()
+			token, err := serviceAccountToken(controllerFullName, namespace)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(token).NotTo(BeEmpty())
 
@@ -469,7 +470,7 @@ spec:
 				frontendServiceName, namespace, ktaskName, namespace)
 			output, err := runInCurlPod(deleterPodName, namespace, curlCmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.TrimSpace(output)).To(Equal("200"))
+			Expect(strings.TrimSpace(output)).To(Equal("204"))
 
 			By("verifying the Ktask is deleted")
 			Eventually(func(g Gomega) {
@@ -848,22 +849,6 @@ spec:
 		})
 	})
 })
-
-// serviceAccountToken returns a token for the specified service account in the given namespace.
-// It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
-// via the `kubectl create token` command.
-func serviceAccountToken() (string, error) {
-	var token string
-	var err error
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "create", "token", controllerFullName, "-n", namespace)
-		token, err = utils.Run(cmd)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(token).NotTo(BeEmpty())
-	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
-
-	return strings.TrimSpace(token), nil
-}
 
 // getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.
 func getMetricsOutput() (string, error) {

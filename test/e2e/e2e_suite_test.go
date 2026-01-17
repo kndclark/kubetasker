@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,6 +79,13 @@ var _ = BeforeSuite(func() {
 
 	By("building the frontend API image")
 	frontendDir := filepath.Join(chartsRoot, "kubetasker-frontend")
+
+	// Copy requirements.txt to frontend directory so it is available in the build context
+	cmd = exec.Command("cp", filepath.Join(projectRootDir, "requirements.txt"), filepath.Join(frontendDir, "requirements.txt"))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to copy requirements.txt to frontend dir")
+	defer os.Remove(filepath.Join(frontendDir, "requirements.txt"))
+
 	dockerfilePath := filepath.Join(frontendDir, "Dockerfile")
 	cmd = exec.Command("docker", "build", "-t", frontendImage, "-f", dockerfilePath, frontendDir)
 	_, err = utils.Run(cmd)
@@ -286,6 +294,22 @@ func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
 	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
 	output, err := utils.Run(execCmd)
 	return output, err
+}
+
+// serviceAccountToken returns a token for the specified service account in the given namespace.
+// It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
+// via the `kubectl create token` command.
+func serviceAccountToken(serviceAccountName, namespaceName string) (string, error) {
+	var token string
+	var err error
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "create", "token", serviceAccountName, "-n", namespaceName)
+		token, err = utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(token).NotTo(BeEmpty())
+	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
+
+	return strings.TrimSpace(token), nil
 }
 
 // installMetricsServer installs the Kubernetes Metrics Server and patches it for Kind compatibility.

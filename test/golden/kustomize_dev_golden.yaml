@@ -212,6 +212,65 @@ spec:
                   This field is required.
                 minLength: 1
                 type: string
+              resources:
+                description: Resources describes the compute resource requirements.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
               restartPolicy:
                 description: |-
                   RestartPolicy defines the restart policy for the job's pods.
@@ -404,6 +463,7 @@ rules:
   - get
   - list
   - create
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -604,6 +664,34 @@ metadata:
     app.kubernetes.io/version: 0.0.1
     control-plane: controller-manager
     helm.sh/chart: kubetasker-controller-0.1.0
+  name: kubetasker-base-kubetasker-controller
+  namespace: dev
+spec:
+  ports:
+  - name: http
+    port: 8090
+    protocol: TCP
+    targetPort: 8090
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/instance: kubetasker-base
+    app.kubernetes.io/name: kubetasker-controller
+    control-plane: controller-manager
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: kubetasker-base
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/version: 0.0.1
+    control-plane: controller-manager
+    helm.sh/chart: kubetasker-controller-0.1.0
   name: kubetasker-base-kubetasker-controller-metrics-service
   namespace: dev
 spec:
@@ -651,9 +739,10 @@ metadata:
   namespace: dev
 spec:
   ports:
-  - port: 8000
+  - name: http
+    port: 8000
     protocol: TCP
-    targetPort: http
+    targetPort: 8000
   selector:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/name: kubetasker-frontend
@@ -690,6 +779,10 @@ spec:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --default-job-cpu-request=100m
+        - --default-job-memory-request=128Mi
+        - --default-job-cpu-limit=100m
+        - --default-job-memory-limit=128Mi
         command:
         - /manager
         image: ktasker.com/kubetasker-controller:v0.0.1
@@ -701,6 +794,12 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
+        ports:
+        - containerPort: 8090
+          name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz
@@ -758,12 +857,15 @@ spec:
         app.kubernetes.io/name: kubetasker-frontend
     spec:
       containers:
-      - image: ktasker.com/kubetasker-frontend:v0.0.1
+      - env:
+        - name: CONTROLLER_URL
+          value: http://kubetasker-base-kubetasker-controller:8090
+        image: ktasker.com/kubetasker-frontend:v0.0.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
         name: frontend-container
@@ -773,7 +875,7 @@ spec:
         readinessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
@@ -838,6 +940,63 @@ metadata:
   namespace: dev
 spec:
   selfSigned: {}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/instance: kubetasker-base
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: kubetasker-controller-0.1.0
+    release: prometheus
+  name: kubetasker-base-kubetasker-controller
+  namespace: dev
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: 30s
+    path: /metrics
+    port: https
+    scheme: https
+    scrapeTimeout: 10s
+    tlsConfig:
+      insecureSkipVerify: true
+  namespaceSelector:
+    matchNames:
+    - dev
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: kubetasker-base
+      app.kubernetes.io/name: kubetasker-controller
+      control-plane: controller-manager
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/instance: kubetasker-base
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: kubetasker-frontend
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: kubetasker-frontend-0.1.0
+    release: prometheus
+  name: kubetasker-base-kubetasker-frontend
+  namespace: dev
+spec:
+  endpoints:
+  - interval: 30s
+    path: /metrics
+    port: http
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - dev
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: kubetasker-base
+      app.kubernetes.io/name: kubetasker-frontend
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration

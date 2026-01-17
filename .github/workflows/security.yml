@@ -10,6 +10,27 @@ on:
       - main
 
 jobs:
+  dependency-scan:
+    name: Scan Dependencies for Vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run Go vulnerability check
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+
+      - name: Run Python vulnerability check
+        run: |
+          pip install pip-audit
+          # Audit the dependencies specified in requirements.txt files
+          pip-audit -r requirements.txt
+
   trufflehog:
     name: TruffleHog Scan
     runs-on: ubuntu-latest
