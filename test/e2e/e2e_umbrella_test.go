@@ -107,6 +107,13 @@ var _ = Describe("Umbrella Chart Environments", Ordered, func() {
 					// Disable ServiceMonitors as CRDs are not installed in the test cluster
 					"--set", "kubetasker-controller.serviceMonitor.enabled=false",
 					"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
+					// Disable affinity and node constraints for test execution on single-node cluster
+					"--set", "kubetasker-controller.affinity=null",
+					"--set", "kubetasker-controller.nodeSelector=null",
+					"--set", "kubetasker-controller.tolerations=null",
+					"--set", "kubetasker-frontend.affinity=null",
+					"--set", "kubetasker-frontend.nodeSelector=null",
+					"--set", "kubetasker-frontend.tolerations=null",
 					"--timeout", "90s", // Add timeout to the helm command itself
 					"--wait",
 				}

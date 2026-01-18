@@ -93,6 +93,13 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 					"--set", "kubetasker-frontend.serviceMonitor.enabled=false",
 					// Explicitly set the controller URL to match the Helm release name
 					"--set", fmt.Sprintf("kubetasker-frontend.controllerUrl=http://%s-kubetasker-controller:8090", tt.helmReleaseName),
+					// Disable affinity and node constraints for test execution on single-node cluster
+					"--set", "kubetasker-controller.affinity=null",
+					"--set", "kubetasker-controller.nodeSelector=null",
+					"--set", "kubetasker-controller.tolerations=null",
+					"--set", "kubetasker-frontend.affinity=null",
+					"--set", "kubetasker-frontend.nodeSelector=null",
+					"--set", "kubetasker-frontend.tolerations=null",
 				)
 
 				// If running in CI, override resource-intensive values to ensure tests can run.
@@ -121,9 +128,15 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 					}
 				}
 
-				helmOutput, err := utils.Run(helmTemplateCmd)
-				Expect(err).NotTo(HaveOccurred())
-				err = os.WriteFile(manifestFile, []byte(helmOutput), 0644)
+				// Use Output() instead of utils.Run() to capture only stdout.
+				helmOutput, err := helmTemplateCmd.Output()
+				if err != nil {
+					if exitErr, ok := err.(*exec.ExitError); ok {
+						Expect(err).NotTo(HaveOccurred(), "helm template failed: %s", string(exitErr.Stderr))
+					}
+					Expect(err).NotTo(HaveOccurred(), "helm template failed")
+				}
+				err = os.WriteFile(manifestFile, helmOutput, 0644)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("copying the authoritative CRD to the kustomize base")
@@ -242,7 +255,7 @@ var _ = Describe("Kustomize Deployments", Ordered, func() {
 			}
 		})
 	}
-	
+
 	AfterAll(func() {
 		By("cleaning up Kustomize test specific global resources")
 		CleanupStaleClusterResources()
