@@ -97,6 +97,8 @@ bump: ## Bump the project version across all files. Usage: make bump part=<major
 		$(PYVENV)/bin/pip install bump-my-version; \
 	fi
 	$(PYVENV)/bin/bump-my-version bump $(part)
+	@echo "Updating Chart.lock..."
+	helm dependency update $(CHART_ROOT)/kubetasker
 
 .PHONY: golden-update
 golden-update: kustomize-manifests kustomize ## Update golden manifest files for tests.
