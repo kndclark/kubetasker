@@ -65,6 +65,29 @@ var _ = Describe("Scheduling Constraints", Ordered, func() {
 			g.Expect(output).To(ContainSubstring("true"))
 		}, "2m", "2s").Should(Succeed(), "Controller pod did not become ready")
 
+		By("waiting for the webhook service to be fully available")
+		// verify the webhook server (port 9443) is fully bound and accepting connections
+		// by attempting to create a dummy Ktask.
+		Eventually(func(g Gomega) {
+			warmupKtask := fmt.Sprintf(`
+apiVersion: task.ktasker.com/v1
+kind: Ktask
+metadata:
+  name: webhook-warmup
+  namespace: %s
+spec:
+  image: busybox
+  command: ["echo", "warmup"]
+`, schedulingNamespace)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(warmupKtask)
+			_, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+		}, "1m", "5s").Should(Succeed(), "Webhook service did not become available")
+
+		// Clean up the warmup resource
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "ktask", "webhook-warmup", "-n", schedulingNamespace, "--ignore-not-found"))
+
 		By("waiting for the frontend pod to be created")
 		Eventually(func() string {
 			out, _ := utils.Run(exec.Command("kubectl", "get", "pods", "-n", schedulingNamespace, "-l", "app.kubernetes.io/name=kubetasker-frontend", "--no-headers"))
