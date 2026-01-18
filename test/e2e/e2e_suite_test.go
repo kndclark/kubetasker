@@ -53,6 +53,7 @@ var (
 	projectRootDir string
 	chartsRoot     string
 	testRoot       string
+	kubeconfigPath string
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -97,6 +98,20 @@ var _ = BeforeSuite(func() {
 	By("loading the frontend API image on Kind")
 	err = utils.LoadImageToKindClusterWithName(kindClusterName, frontendImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the frontend API image into Kind")
+
+	By("getting the kubeconfig from Kind")
+	cmd = exec.Command("kind", "get", "kubeconfig", "--name", kindClusterName)
+	kubeconfig, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to get kubeconfig from Kind")
+
+	f, err := os.CreateTemp("", "kubeconfig")
+	Expect(err).NotTo(HaveOccurred())
+	_, err = f.WriteString(kubeconfig)
+	Expect(err).NotTo(HaveOccurred())
+	err = f.Close()
+	Expect(err).NotTo(HaveOccurred())
+	kubeconfigPath = f.Name()
+	os.Setenv("KUBECONFIG", kubeconfigPath)
 
 	By("updating helm dependencies for the umbrella chart")
 	umbrellaChartPath := filepath.Join(chartsRoot, "kubetasker")
@@ -195,6 +210,9 @@ var _ = AfterSuite(func() {
 	// Only remove the files generated during the test, not the whole directory.
 	_ = os.Remove(filepath.Join(projectRootDir, "kustomize", "base", "all.yaml"))
 	_ = os.Remove(filepath.Join(projectRootDir, "kustomize", "base", "crd.yaml"))
+	if kubeconfigPath != "" {
+		_ = os.Remove(kubeconfigPath)
+	}
 })
 
 // logDebugInfoOnFailure checks if the current Ginkgo spec has failed. If it has, it captures
