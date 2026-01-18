@@ -36,6 +36,9 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/kubetasker-controller:${{ github.sha }}
             ${{ secrets.DOCKER_USERNAME }}/kubetasker-controller:latest
 
+      - name: Copy requirements.txt to frontend directory
+        run: cp requirements.txt helm/kubetasker-frontend/
+
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
