@@ -68,3 +68,22 @@ KubeTasker schedules task pods with the following expectations:
     *   Pods may remain Pending if constraints cannot be satisfied
 
 This behavior is validated in the E2E test suite.
+
+## Troubleshooting Scheduling
+
+### Pods Stuck in Pending
+
+If a Task or API pod remains in `Pending` state, check the scheduler events:
+
+```bash
+kubectl describe pod <pod-name>
+```
+
+**Common Errors:**
+
+*   `0/3 nodes are available: 3 node(s) had taint {kubetasker: tasks}, that the pod didn't tolerate.`
+    *   **Cause**: The pod is trying to schedule on a node reserved for tasks, but lacks the required toleration.
+    *   **Fix**: Add the corresponding toleration to your Ktask spec or Deployment.
+*   `0/3 nodes are available: 3 node(s) didn't match Pod's node affinity/selector.`
+    *   **Cause**: The pod requires a specific node label (e.g., `node-role=general`) that no node currently has.
+    *   **Fix**: Ensure nodes are labeled correctly using `kubectl label node <node> node-role=general`.

@@ -139,5 +139,11 @@ func validateImmutableFields(new, old *Ktask) field.ErrorList {
 			new.Spec.ServiceAccountName, "field is immutable"))
 	}
 
+	if new.Spec.RestartPolicy != old.Spec.RestartPolicy {
+		allErrs = append(allErrs, field.Invalid(
+			field.NewPath("spec").Child("restartPolicy"),
+			new.Spec.RestartPolicy, "field is immutable"))
+	}
+
 	return allErrs
 }

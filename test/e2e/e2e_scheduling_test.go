@@ -32,9 +32,9 @@ var _ = Describe("Scheduling Constraints", Ordered, func() {
 		targetNode = strings.TrimSpace(output)
 		Expect(targetNode).NotTo(BeEmpty())
 
-		By("labeling the node for affinity test")
-		_, err = utils.Run(exec.Command("kubectl", "label", "node", targetNode, "node-role=general", "--overwrite"))
-		Expect(err).NotTo(HaveOccurred())
+		By("ensuring the node is not labeled initially")
+		// Ensure the label is absent to verify the Pending state first
+		_, _ = utils.Run(exec.Command("kubectl", "label", "node", targetNode, "node-role-", "--overwrite"))
 
 		By("deploying KubeTasker with affinity enabled")
 		umbrellaChartPath := filepath.Join(chartsRoot, "kubetasker")
@@ -51,11 +51,25 @@ var _ = Describe("Scheduling Constraints", Ordered, func() {
 			"--set", "kubetasker-frontend.controllerUrl=http://"+releaseName+"-kubetasker-controller:8090",
 			"--set", "kubetasker-frontend.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key=node-role",
 			"--set", "kubetasker-frontend.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator=In",
-			"--set", "kubetasker-frontend.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]=general",
-			"--wait", "--timeout=5m")
+			"--set", "kubetasker-frontend.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]=general")
+		// Note: removed --wait because we expect the pod to be 'Pending' initially due to affinity
 
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy KubeTasker with affinity")
+
+		By("waiting for the controller pod to be ready")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods", "-n", schedulingNamespace, "-l", "control-plane=controller-manager", "-o", "jsonpath={.items[*].status.containerStatuses[*].ready}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(ContainSubstring("true"))
+		}, "2m", "2s").Should(Succeed(), "Controller pod did not become ready")
+
+		By("waiting for the frontend pod to be created")
+		Eventually(func() string {
+			out, _ := utils.Run(exec.Command("kubectl", "get", "pods", "-n", schedulingNamespace, "-l", "app.kubernetes.io/name=kubetasker-frontend", "--no-headers"))
+			return strings.TrimSpace(out)
+		}, "1m", "2s").ShouldNot(BeEmpty(), "Frontend pod was not created")
 	})
 
 	AfterAll(func() {
@@ -83,7 +97,22 @@ var _ = Describe("Scheduling Constraints", Ordered, func() {
 	})
 
 	Context("Node Affinity Verification", func() {
-		It("should have placed Frontend pod on the labeled node", func() {
+		It("should remain Pending when node label is missing", func() {
+			By("verifying the frontend pod is Pending")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods", "-n", schedulingNamespace, "-l", "app.kubernetes.io/name=kubetasker-frontend", "-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("Pending"))
+			}, "1m", "5s").Should(Succeed())
+		})
+
+		It("should schedule Frontend pod once the node is labeled", func() {
+			By("labeling the node to satisfy affinity")
+			_, err := utils.Run(exec.Command("kubectl", "label", "node", targetNode, "node-role=general", "--overwrite"))
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the pod is scheduled on the labeled node")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "pods", "-n", schedulingNamespace, "-l", "app.kubernetes.io/name=kubetasker-frontend", "-o", "jsonpath={.items[0].spec.nodeName}")
 				output, err := utils.Run(cmd)

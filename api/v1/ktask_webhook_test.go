@@ -123,6 +123,23 @@ var _ = Describe("Ktask Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring("field is immutable"))
 		})
 
+		It("should fail validation on update if an immutable field (restartPolicy) is changed", func() {
+			oldKtask := &Ktask{
+				Spec: KtaskSpec{
+					Image:         "busybox",
+					Command:       []string{"echo", "hello"},
+					RestartPolicy: "OnFailure",
+				},
+			}
+
+			newKtask := oldKtask.DeepCopy()
+			newKtask.Spec.RestartPolicy = "Never"
+
+			_, err := newKtask.ValidateUpdate(oldKtask)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("field is immutable"))
+		})
+
 		It("should pass validation on update if a mutable field is changed", func() {
 			oldKtask := &Ktask{
 				Spec: KtaskSpec{

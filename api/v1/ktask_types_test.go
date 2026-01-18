@@ -3,6 +3,7 @@ package v1
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -75,4 +76,34 @@ var _ = Describe("Ktask types", func() {
 		Expect(original.DeepCopy()).To(BeNil())
 	})
 
+	It("should perform deep copy of KtaskSpec correctly", func() {
+		original := &KtaskSpec{
+			Image:   "test-image",
+			Command: []string{"echo", "test"},
+			Affinity: &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{},
+			},
+			Tolerations: []corev1.Toleration{
+				{Key: "test", Value: "value"},
+			},
+		}
+		copied := original.DeepCopy()
+		Expect(copied).NotTo(BeIdenticalTo(original))
+		Expect(copied).To(Equal(original))
+
+		// Verify deep copy of pointer fields
+		Expect(copied.Affinity).NotTo(BeIdenticalTo(original.Affinity))
+		// Verify deep copy of slice fields by modifying the copy
+		copied.Tolerations[0].Value = "modified"
+		Expect(original.Tolerations[0].Value).To(Equal("value"))
+	})
+
+	It("should perform deep copy of KtaskStatus correctly", func() {
+		original := &KtaskStatus{
+			Phase: "Pending",
+		}
+		copied := original.DeepCopy()
+		Expect(copied).NotTo(BeIdenticalTo(original))
+		Expect(copied).To(Equal(original))
+	})
 })

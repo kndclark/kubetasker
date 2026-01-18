@@ -658,6 +658,88 @@ var _ = Describe("Ktask Controller", func() {
 			_ = k8sClient.Delete(context.Background(), created)
 		})
 
+		It("should get a single Ktask via HTTP GET", func() {
+			ktask := &customv1.Ktask{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "get-test-ktask",
+					Namespace: "default",
+				},
+				Spec: customv1.KtaskSpec{
+					Image: "busybox",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), ktask)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(context.Background(), ktask) }()
+
+			req, _ := http.NewRequest("GET", "/ktask/get-test-ktask?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskGetDelete(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusOK))
+			var returnedKtask customv1.Ktask
+			Expect(json.Unmarshal(rr.Body.Bytes(), &returnedKtask)).To(Succeed())
+			Expect(returnedKtask.Name).To(Equal("get-test-ktask"))
+		})
+
+		It("should return 404 for non-existent Ktask via HTTP GET", func() {
+			req, _ := http.NewRequest("GET", "/ktask/non-existent?namespace=default", nil)
+			rr := httptest.NewRecorder()
+			handler := handleKtaskGetDelete(mgr)
+			handler.ServeHTTP(rr, req)
+
+			Expect(rr.Code).To(Equal(http.StatusNotFound))
+		})
+
+		It("should propagate scheduling constraints (Affinity/Tolerations) to the Job", func() {
+			const schedulingKtaskName = "scheduling-ktask"
+			schedulingKey := types.NamespacedName{Name: schedulingKtaskName, Namespace: "default"}
+
+			affinity := &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{MatchExpressions: []corev1.NodeSelectorRequirement{
+								{Key: "kubernetes.io/hostname", Operator: corev1.NodeSelectorOpIn, Values: []string{"node1"}},
+							}},
+						},
+					},
+				},
+			}
+			tolerations := []corev1.Toleration{
+				{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "gpu", Effect: corev1.TaintEffectNoSchedule},
+			}
+
+			ktask := &customv1.Ktask{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      schedulingKtaskName,
+					Namespace: "default",
+				},
+				Spec: customv1.KtaskSpec{
+					Image:         "busybox",
+					Affinity:      affinity,
+					Tolerations:   tolerations,
+					RestartPolicy: "OnFailure",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), ktask)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(context.Background(), ktask) }()
+
+			// Reconcile
+			controllerReconciler := &KtaskReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: schedulingKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			createdJob := &batchv1.Job{}
+			jobKey := types.NamespacedName{Name: schedulingKtaskName + "-job", Namespace: "default"}
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), jobKey, createdJob)
+			}, time.Second*10, time.Millisecond*250).Should(Succeed())
+
+			Expect(createdJob.Spec.Template.Spec.Affinity).To(Equal(affinity))
+			Expect(createdJob.Spec.Template.Spec.Tolerations).To(Equal(tolerations))
+		})
+
 		It("should delete a Ktask via HTTP DELETE", func() {
 			// We rely on the fact that the handler calls client.Delete.
 			// If the object doesn't exist, it returns 404.
