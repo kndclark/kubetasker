@@ -5,10 +5,10 @@ kind: ServiceAccount
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.2.1
+    helm.sh/chart: kubetasker-frontend-0.2.2
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/version: "0.2.2"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
 ---
@@ -18,10 +18,10 @@ kind: ClusterRole
 metadata:
   name: kubetasker-frontend-test-cluster-role
   labels:
-    helm.sh/chart: kubetasker-frontend-0.2.1
+    helm.sh/chart: kubetasker-frontend-0.2.2
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/version: "0.2.2"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups: ["task.ktasker.com"]
@@ -49,10 +49,10 @@ kind: Role
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.2.1
+    helm.sh/chart: kubetasker-frontend-0.2.2
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/version: "0.2.2"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups: ["task.ktasker.com"]
@@ -78,10 +78,10 @@ kind: Service
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.2.1
+    helm.sh/chart: kubetasker-frontend-0.2.2
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/version: "0.2.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -100,10 +100,10 @@ kind: Deployment
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.2.1
+    helm.sh/chart: kubetasker-frontend-0.2.2
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/version: "0.2.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -120,7 +120,7 @@ spec:
       serviceAccountName: kubetasker-frontend-test
       containers:
       - name: frontend-container
-        image: "ktasker.com/kubetasker-frontend:v0.2.1"
+        image: "ktasker.com/kubetasker-frontend:v0.2.2"
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
