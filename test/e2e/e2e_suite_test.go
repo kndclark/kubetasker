@@ -25,8 +25,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"testing"
 	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,9 +47,9 @@ var (
 	kindClusterName = "kubetasker-test-e2e"
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "ktasker.com/kubetasker:v0.0.1"
+	projectImage = "ktasker.com/kubetasker:v0.2.0"
 	// frontendImage is the name of the frontend API service image.
-	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
+	frontendImage  = "ktasker.com/kubetasker-frontend:v0.2.0"
 	projectRootDir string
 	chartsRoot     string
 	testRoot       string
@@ -137,7 +137,7 @@ var _ = BeforeSuite(func() {
 // that might have been left over from previous failed or interrupted test runs.
 func CleanupStaleClusterResources() {
 	By("scrubbing stale cluster-scoped resources")
-	
+
 	// Patterns for stale webhooks
 	webhookPatterns := []string{
 		"kt-sched-kubetasker-controller",
@@ -153,7 +153,7 @@ func CleanupStaleClusterResources() {
 	for _, p := range webhookPatterns {
 		mutating := p + "-mutating-webhook-configuration"
 		validating := p + "-validating-webhook-configuration"
-		
+
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", mutating, "--ignore-not-found"))
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfiguration", validating, "--ignore-not-found"))
 	}

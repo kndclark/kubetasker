@@ -1333,8 +1333,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller
   namespace: prod
 ---
@@ -1346,8 +1346,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
   name: kubetasker-base-kubetasker-frontend
   namespace: prod
 ---
@@ -1358,8 +1358,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-leader-election-role
   namespace: prod
 rules:
@@ -1402,8 +1402,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
   name: kubetasker-base-kubetasker-frontend
   namespace: prod
 rules:
@@ -1424,8 +1424,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-manager-role
 rules:
 - apiGroups:
@@ -1482,8 +1482,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-auth-role
 rules:
 - apiGroups:
@@ -1506,8 +1506,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-reader
 rules:
 - nonResourceURLs:
@@ -1522,8 +1522,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
   name: kubetasker-base-kubetasker-frontend-cluster-role
 rules:
 - apiGroups:
@@ -1541,8 +1541,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-leader-election-rolebinding
   namespace: prod
 roleRef:
@@ -1575,8 +1575,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -1594,8 +1594,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-auth-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -1613,8 +1613,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-reader-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -1645,9 +1645,9 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/version: 0.2.0
     control-plane: controller-manager
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller
   namespace: prod
 spec:
@@ -1673,9 +1673,9 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/version: 0.2.0
     control-plane: controller-manager
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-service
   namespace: prod
 spec:
@@ -1696,8 +1696,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-webhook-service
   namespace: prod
 spec:
@@ -1717,8 +1717,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
   name: kubetasker-base-kubetasker-frontend
   namespace: prod
 spec:
@@ -1739,9 +1739,9 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/version: 0.2.0
     control-plane: controller-manager
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller
   namespace: prod
 spec:
@@ -1769,7 +1769,7 @@ spec:
         - --default-job-memory-limit=128Mi
         command:
         - /manager
-        image: ktasker.com/kubetasker-controller:v0.0.1
+        image: ktasker.com/kubetasker-controller:v0.2.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -1824,8 +1824,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
   name: kubetasker-base-kubetasker-frontend
   namespace: prod
 spec:
@@ -1844,7 +1844,7 @@ spec:
       - env:
         - name: CONTROLLER_URL
           value: http://kubetasker-base-kubetasker-controller:8090
-        image: ktasker.com/kubetasker-frontend:v0.0.1
+        image: ktasker.com/kubetasker-frontend:v0.2.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -1878,8 +1878,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-metrics-cert
   namespace: prod
 spec:
@@ -1898,8 +1898,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-serving-cert
   namespace: prod
 spec:
@@ -1918,8 +1918,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-selfsigned-issuer
   namespace: prod
 spec:
@@ -1932,8 +1932,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     release: prometheus
   name: kubetasker-base-kubetasker-controller
   namespace: prod
@@ -1963,8 +1963,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-frontend
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
     release: prometheus
   name: kubetasker-base-kubetasker-frontend
   namespace: prod
@@ -1992,8 +1992,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -2027,8 +2027,8 @@ metadata:
     app.kubernetes.io/instance: kubetasker-base
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: kubetasker-controller
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: kubetasker-controller-0.1.0
+    app.kubernetes.io/version: 0.2.0
+    helm.sh/chart: kubetasker-controller-0.2.0
   name: kubetasker-base-kubetasker-controller-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:

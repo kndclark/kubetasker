@@ -1,8 +1,11 @@
+# Version to use for building/pushing image targets
+VERSION ?= v0.2.0
+
 # Image URL to use all building/pushing image targets
-IMG ?= ktasker.com/kubetasker-controller:v0.0.1
+IMG ?= ktasker.com/kubetasker-controller:$(VERSION)
 
 # Image URL for the frontend service
-FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1
+FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:$(VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -85,25 +88,37 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: bump
+bump: ## Bump the project version across all files. Usage: make bump part=<major|minor|patch>
+	@if [ -z "$(part)" ]; then echo "Usage: make bump part=<major|minor|patch>"; exit 1; fi
+	@# Ensure bump-my-version is installed in the venv
+	@if [ ! -f "$(PYVENV)/bin/bump-my-version" ]; then \
+		echo "Installing bump-my-version..."; \
+		$(PYVENV)/bin/pip install bump-my-version; \
+	fi
+	$(PYVENV)/bin/bump-my-version bump $(part)
+	@echo "Updating Chart.lock..."
+	helm dependency update $(CHART_ROOT)/kubetasker
+
 .PHONY: golden-update
 golden-update: kustomize-manifests kustomize ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
-	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
+	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=$(VERSION) > test/golden/helm_golden.yaml
 	@echo "--- Updating frontend static golden file..."
 	cat $(CHART_ROOT)/kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
-	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=$(VERSION) > test/golden/frontend_helm_golden.yaml
 	@echo "--- Updating umbrella chart golden files..."
 	@for env in dev staging prod; do \
 		echo "--- Generating golden file for $$env environment..."; \
 		helm template umbrella-$$env $(CHART_ROOT)/kubetasker \
 			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
 			--set kubetasker-controller.image.repository=controller \
-			--set kubetasker-controller.image.tag=v0.0.1 \
+			--set kubetasker-controller.image.tag=$(VERSION) \
 			--set kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend \
-			--set kubetasker-frontend.image.tag=v0.0.1 \
+			--set kubetasker-frontend.image.tag=$(VERSION) \
 			--set kubetasker-controller.certManager.enabled=false \
 			> test/golden/umbrella_$$env\_golden.yaml; \
 	done
@@ -124,7 +139,7 @@ test: kustomize-manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running unit and integration tests"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e | grep -v /golden) -coverprofile cover.out
 	@echo "--- Running golden file tests"
-	go test -v ./test/golden
+	VERSION=$(VERSION) go test -v ./test/golden
 
 KIND_CLUSTER = kubetasker
 KIND_CLUSTER_DEV ?= kubetasker-test-e2e

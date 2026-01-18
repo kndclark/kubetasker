@@ -1,0 +1,68 @@
+name: Auto Bump Version
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      part:
+        description: 'Part of the version to bump'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump-version:
+    # Skip execution if the commit message starts with "Bump version:" to prevent infinite loops, unless manually triggered
+    if: "github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version:')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required to access tags and history for versioning
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install bump-my-version
+        run: pip install bump-my-version
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump Version
+        env:
+          BUMP_PART: ${{ inputs.part || 'patch' }}
+        run: |
+          # Bump version files but do not commit yet
+          bump-my-version bump "$BUMP_PART"
+
+      - name: Update Generated Files
+        run: |
+          helm dependency update helm/kubetasker
+          make golden-update
+
+      - name: Commit and Tag
+        run: |
+          NEW_VERSION=$(bump-my-version show current_version)
+          git add .
+          git commit -m "Bump version: $NEW_VERSION"
+          git tag "v$NEW_VERSION"
+          git push --follow-tags
