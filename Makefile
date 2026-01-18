@@ -1,5 +1,5 @@
 # Version to use for building/pushing image targets
-VERSION ?= v0.1.2
+VERSION ?= v0.2.0
 
 # Image URL to use all building/pushing image targets
 IMG ?= ktasker.com/kubetasker-controller:$(VERSION)
