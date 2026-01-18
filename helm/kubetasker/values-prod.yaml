@@ -29,7 +29,7 @@ kubetasker-frontend:
     requests:
       cpu: 200m
       memory: 256Mi
-  # Example of adding pod anti-affinity for production
+  # Adding pod anti-affinity for production
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
