@@ -139,7 +139,7 @@ test: kustomize-manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running unit and integration tests"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e | grep -v /golden) -coverprofile cover.out
 	@echo "--- Running golden file tests"
-	go test -v ./test/golden
+	VERSION=$(VERSION) go test -v ./test/golden
 
 KIND_CLUSTER = kubetasker
 KIND_CLUSTER_DEV ?= kubetasker-test-e2e
