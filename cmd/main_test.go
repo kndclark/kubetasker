@@ -102,6 +102,11 @@ func TestMainFunction(t *testing.T) {
 	// Kill the process
 	err = cmd.Process.Kill()
 	g.Expect(err).NotTo(HaveOccurred(), "Failed to kill manager process")
+
+	// Test invalid flag
+	cmd = exec.Command("./manager_test_binary", "--invalid-flag")
+	err = cmd.Run()
+	g.Expect(err).To(HaveOccurred(), "Manager should fail with invalid flag")
 }
 
 func TestRunFunctionErrorPaths(t *testing.T) {

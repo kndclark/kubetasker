@@ -51,6 +51,8 @@ class KtaskSpec(BaseModel):
     env: Optional[List[EnvVar]] = None
     restart_policy: str = Field("OnFailure", alias="restartPolicy")
     resources: Optional[dict] = None
+    affinity: Optional[dict] = None
+    tolerations: Optional[List[dict]] = None
 
 class KtaskPayload(BaseModel):
     api_version: str = Field(..., alias="apiVersion")

@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"os/exec"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -40,6 +42,22 @@ var _ = Describe("Utils", func() {
 			input := "line1\r\nline2\nline3"
 			expected := []string{"line1", "line2", "line3"}
 			Expect(GetNonEmptyLines(input)).To(Equal(expected))
+		})
+	})
+
+	Context("When calling Run", func() {
+		It("should return output on success", func() {
+			cmd := exec.Command("echo", "hello")
+			output, err := Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("hello"))
+		})
+
+		It("should return error on failure", func() {
+			// 'false' command returns exit code 1
+			cmd := exec.Command("false")
+			_, err := Run(cmd)
+			Expect(err).To(HaveOccurred())
 		})
 	})
 

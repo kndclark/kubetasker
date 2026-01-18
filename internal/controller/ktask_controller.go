@@ -179,6 +179,8 @@ func (r *KtaskReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res 
 						},
 					},
 					RestartPolicy: corev1.RestartPolicy(ktask.Spec.RestartPolicy),
+					Affinity:      ktask.Spec.Affinity,
+					Tolerations:   ktask.Spec.Tolerations,
 				},
 			},
 			BackoffLimit: ktask.Spec.BackoffLimit,

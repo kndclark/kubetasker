@@ -56,6 +56,12 @@ Running `kubectl apply -k kustomize/overlays/<env>` will build and deploy the ma
 *   `kubectl` installed and configured.
 *   `helm` v3+ installed.
 
+### Cluster Assumptions
+
+KubeTasker is developed and tested using a multi-node Kind cluster.
+See [docs/cluster-topology.md](docs/cluster-topology.md) for details on
+supported scheduler features and topology assumptions.
+
 ### Deployment
 
 You can deploy KubeTasker using the unified Umbrella Chart, Kustomize, or individual Helm charts.
