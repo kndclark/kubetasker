@@ -47,9 +47,9 @@ var (
 	kindClusterName = "kubetasker-test-e2e"
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "ktasker.com/kubetasker:v0.2.0"
+	projectImage = "ktasker.com/kubetasker:v0.2.1"
 	// frontendImage is the name of the frontend API service image.
-	frontendImage  = "ktasker.com/kubetasker-frontend:v0.2.0"
+	frontendImage  = "ktasker.com/kubetasker-frontend:v0.2.1"
 	projectRootDir string
 	chartsRoot     string
 	testRoot       string
