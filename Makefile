@@ -1,8 +1,11 @@
+# Version to use for building/pushing image targets
+VERSION ?= v0.2.0
+
 # Image URL to use all building/pushing image targets
-IMG ?= ktasker.com/kubetasker-controller:v0.0.1
+IMG ?= ktasker.com/kubetasker-controller:$(VERSION)
 
 # Image URL for the frontend service
-FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:v0.0.1
+FRONTEND_IMG ?= ktasker.com/kubetasker-frontend:$(VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -25,8 +28,10 @@ SHELL = /usr/bin/env bash -o pipefail
 PYTHON=python3
 PYVENV=.kubetasker_pyenv
 
+CONTROLLER=kubetasker-controller
 FRONTEND=kubetasker-frontend
 FRONTEND_PORT=8000
+CONTROLLER_PORT=8090
 
 # Path to the Helm charts directory
 CHART_ROOT ?= helm
@@ -83,25 +88,37 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: bump
+bump: ## Bump the project version across all files. Usage: make bump part=<major|minor|patch>
+	@if [ -z "$(part)" ]; then echo "Usage: make bump part=<major|minor|patch>"; exit 1; fi
+	@# Ensure bump-my-version is installed in the venv
+	@if [ ! -f "$(PYVENV)/bin/bump-my-version" ]; then \
+		echo "Installing bump-my-version..."; \
+		$(PYVENV)/bin/pip install bump-my-version; \
+	fi
+	$(PYVENV)/bin/bump-my-version bump $(part)
+	@echo "Updating Chart.lock..."
+	helm dependency update $(CHART_ROOT)/kubetasker
+
 .PHONY: golden-update
 golden-update: kustomize-manifests kustomize ## Update golden manifest files for tests.
 	@echo "--- Updating kustomize golden file..."
 	kustomize build config/default > test/golden/kustomize_golden.yaml
 	@echo "--- Updating helm golden file..."
-	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=v0.0.1 > test/golden/helm_golden.yaml
+	helm template kubetasker-controller-test $(CHART_ROOT)/kubetasker-controller --set image.repository=ktasker.com/kubetasker --set image.tag=$(VERSION) > test/golden/helm_golden.yaml
 	@echo "--- Updating frontend static golden file..."
 	cat $(CHART_ROOT)/kubetasker-frontend/templates/deployment.yaml > test/golden/frontend_static_golden.yaml
 	@echo "--- Updating frontend helm golden file..."
-	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=v0.0.1 > test/golden/frontend_helm_golden.yaml
+	helm template kubetasker-frontend-test $(CHART_ROOT)/kubetasker-frontend --set image.repository=ktasker.com/kubetasker-frontend --set image.tag=$(VERSION) > test/golden/frontend_helm_golden.yaml
 	@echo "--- Updating umbrella chart golden files..."
 	@for env in dev staging prod; do \
 		echo "--- Generating golden file for $$env environment..."; \
 		helm template umbrella-$$env $(CHART_ROOT)/kubetasker \
 			-f $(CHART_ROOT)/kubetasker/values-$$env.yaml \
 			--set kubetasker-controller.image.repository=controller \
-			--set kubetasker-controller.image.tag=v0.0.1 \
+			--set kubetasker-controller.image.tag=$(VERSION) \
 			--set kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend \
-			--set kubetasker-frontend.image.tag=v0.0.1 \
+			--set kubetasker-frontend.image.tag=$(VERSION) \
 			--set kubetasker-controller.certManager.enabled=false \
 			> test/golden/umbrella_$$env\_golden.yaml; \
 	done
@@ -122,7 +139,7 @@ test: kustomize-manifests generate fmt vet setup-envtest ## Run tests.
 	@echo "--- Running unit and integration tests"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e | grep -v /golden) -coverprofile cover.out
 	@echo "--- Running golden file tests"
-	go test -v ./test/golden
+	VERSION=$(VERSION) go test -v ./test/golden
 
 KIND_CLUSTER = kubetasker
 KIND_CLUSTER_DEV ?= kubetasker-test-e2e
@@ -143,7 +160,7 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v -timeout 20m
 	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e
@@ -193,20 +210,65 @@ docker-clean: ## stop and remove docker image completely
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
+.PHONY: deploy-controller
+deploy-controller: docker-build install-cert-manager ## Deploy or update the controller in the current cluster using Helm.
+	@echo "--- Loading images into Kind cluster..."
+	-$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
+	@echo "--- Deploying controller via Helm..."
+	helm upgrade --install $(CONTROLLER) $(CHART_ROOT)/$(CONTROLLER) --set image.repository=$(shell echo $(IMG) | cut -d: -f1) --set image.tag=$(shell echo $(IMG) | cut -d: -f2) --wait
+	@echo "--- Restarting controller deployment to apply image changes..."
+	$(KUBECTL) rollout restart deployment $(CONTROLLER)
+
+.PHONY: debug-controller
+debug-controller: ## Debug the controller deployment by showing pod status, logs, and events.
+	@echo "--- Pod Status ---"
+	$(KUBECTL) get pods -l control-plane=controller-manager
+	@echo "--- Pod Description (Events) ---"
+	$(KUBECTL) describe pods -l control-plane=controller-manager
+	@echo "--- Pod Logs ---"
+	$(KUBECTL) logs -l control-plane=controller-manager --all-containers=true --tail=100
+	@echo "--- Service Status ---"
+	$(KUBECTL) get svc -l app.kubernetes.io/name=$(CONTROLLER) || true
+	@echo "--- Endpoints Status ---"
+	$(KUBECTL) get endpoints -l app.kubernetes.io/name=$(CONTROLLER) || true
+
+.PHONY: undeploy-controller
+undeploy-controller: ## Undeploy the controller helm release.
+	@echo "--- Undeploying controller via Helm..."
+	-helm uninstall $(CONTROLLER)
+
+.PHONY: deploy-frontend
+deploy-frontend: docker-build-frontend ## Deploy or update the frontend service in the current cluster using Helm.
+	@echo "--- Loading frontend image into Kind cluster..."
+	-$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
+	@echo "--- Deploying frontend via Helm..."
+	helm upgrade --install $(FRONTEND) $(CHART_ROOT)/$(FRONTEND) --set image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) --set image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) --set controllerUrl=http://$(CONTROLLER):$(CONTROLLER_PORT) --wait
+	@echo "--- Restarting frontend deployment to apply image changes..."
+	$(KUBECTL) rollout restart deployment $(FRONTEND)
+
+.PHONY: debug-frontend
+debug-frontend: ## Debug the frontend deployment by showing pod status, logs, and events.
+	@echo "--- Pod Status ---"
+	$(KUBECTL) get pods -l app.kubernetes.io/name=$(FRONTEND)
+	@echo "--- Pod Description (Events) ---"
+	$(KUBECTL) describe pods -l app.kubernetes.io/name=$(FRONTEND)
+	@echo "--- Pod Logs ---"
+	$(KUBECTL) logs -l app.kubernetes.io/name=$(FRONTEND) --all-containers=true --tail=100
+
+.PHONY: undeploy-frontend
+undeploy-frontend: ## Undeploy the frontend helm release.
+	@echo "--- Undeploying frontend via Helm..."
+	-helm uninstall $(FRONTEND)
+
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend API container image.
+	cp requirements.txt $(CHART_ROOT)/$(FRONTEND)/requirements.txt
 	$(CONTAINER_TOOL) build -t $(FRONTEND_IMG) -f $(CHART_ROOT)/$(FRONTEND)/Dockerfile $(CHART_ROOT)/$(FRONTEND)
+	rm $(CHART_ROOT)/$(FRONTEND)/requirements.txt
 
 .PHONY: load-docker-frontend
 load-docker-frontend: ## Load the frontend API container image into the kubetasker cluster
 	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER)
-
-.PHONY: deploy-frontend
-deploy-frontend: ## Deploy or update the frontend service in the current cluster using Helm.
-	@echo "--- Deploying frontend via Helm..."
-	helm upgrade --install $(FRONTEND) $(CHART_ROOT)/$(FRONTEND) --set image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) --set image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2)
-	@echo "--- Restarting frontend deployment to apply image changes..."
-	$(KUBECTL) rollout restart deployment $(FRONTEND)
 
 .PHONY: docker-push-frontend
 docker-push-frontend: ## Push the frontend API container image.
@@ -339,9 +401,57 @@ deploy-umbrella: docker-build docker-build-frontend install-cert-manager ## Depl
 		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
 		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
 		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.controllerUrl=http://$(UMBRELLA_RELEASE_NAME)-kubetasker-controller:$(CONTROLLER_PORT) \
 		--wait
 	@echo "--- KubeTasker umbrella chart deployed successfully."
 	@echo "--- To check the status, run: kubectl get pods -n $(UMBRELLA_NAMESPACE)"
+
+.PHONY: debug
+debug: debug-umbrella ## Alias for debug-umbrella
+
+.PHONY: debug-umbrella
+debug-umbrella: ## Debug the umbrella deployment by showing pod status, logs, and events.
+	@echo "--- Pod Status ---"
+	$(KUBECTL) get pods -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/instance=$(UMBRELLA_RELEASE_NAME)
+	@echo "--- Pod Description (Events) ---"
+	$(KUBECTL) describe pods -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/instance=$(UMBRELLA_RELEASE_NAME)
+	@echo "--- Pod Logs ---"
+	$(KUBECTL) logs -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/instance=$(UMBRELLA_RELEASE_NAME) --all-containers=true --tail=100
+
+.PHONY: install-prometheus
+install-prometheus: ## Install kube-prometheus-stack using Helm.
+	@echo "--- Checking for kube-prometheus-stack release..."
+	@if ! helm status prometheus -n monitoring > /dev/null 2>&1; then \
+		echo "--- kube-prometheus-stack not found. Installing via Helm..."; \
+		helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; \
+		helm repo update; \
+		helm install prometheus prometheus-community/kube-prometheus-stack \
+			--namespace monitoring \
+			--create-namespace \
+			--wait; \
+	else \
+		echo "--- kube-prometheus-stack is already installed. Skipping installation."; \
+	fi
+
+.PHONY: deploy-monitoring
+deploy-monitoring: docker-build docker-build-frontend install-cert-manager install-prometheus ## Deploy KubeTasker with Prometheus monitoring enabled.
+	@echo "--- Loading images into Kind cluster..."
+	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER_DEV)
+	$(KIND) load docker-image $(FRONTEND_IMG) --name $(KIND_CLUSTER_DEV)
+	@echo "--- Updating Helm dependencies for umbrella chart..."
+	helm dependency update $(CHART_ROOT)/kubetasker
+	@echo "--- Deploying umbrella chart with monitoring enabled..."
+	helm upgrade --install $(UMBRELLA_RELEASE_NAME) $(CHART_ROOT)/kubetasker \
+		--namespace $(UMBRELLA_NAMESPACE) --create-namespace \
+		--set kubetasker-controller.image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set kubetasker-controller.image.tag=$(shell echo $(IMG) | cut -d: -f2) \
+		--set kubetasker-frontend.image.repository=$(shell echo $(FRONTEND_IMG) | cut -d: -f1) \
+		--set kubetasker-frontend.image.tag=$(shell echo $(FRONTEND_IMG) | cut -d: -f2) \
+		--set kubetasker-controller.serviceMonitor.enabled=true \
+		--set kubetasker-frontend.serviceMonitor.enabled=true \
+		--set kubetasker-frontend.controllerUrl=http://$(UMBRELLA_RELEASE_NAME)-kubetasker-controller:$(CONTROLLER_PORT) \
+		--wait
+	@echo "--- KubeTasker with monitoring deployed successfully."
 
 .PHONY: undeploy-umbrella
 undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
@@ -353,6 +463,28 @@ undeploy-umbrella: ## Undeploy the KubeTasker stack and cert-manager.
 	-helm uninstall cert-manager --namespace cert-manager
 	@echo "--- Deleting cert-manager namespace..."
 	-$(KUBECTL) delete namespace cert-manager --ignore-not-found
+
+.PHONY: uninstall-prometheus
+uninstall-prometheus: ## Uninstall kube-prometheus-stack.
+	@echo "--- Uninstalling kube-prometheus-stack..."
+	-helm uninstall prometheus --namespace monitoring
+	@echo "--- Deleting monitoring namespace..."
+	-$(KUBECTL) delete namespace monitoring --ignore-not-found
+
+.PHONY: dashboard
+dashboard: ## Port-forward the frontend pod to localhost:8000
+	@echo "--- Port-forwarding KubeTasker Dashboard to http://localhost:8000 ..."
+	@POD_NAME=$$(kubectl get pods -n $(UMBRELLA_NAMESPACE) -l app.kubernetes.io/name=kubetasker-frontend --no-headers -o custom-columns=":metadata.name" 2>/dev/null | head -n 1); \
+	if [ -z "$$POD_NAME" ]; then \
+	  echo "Error: frontend pod not found in namespace $(UMBRELLA_NAMESPACE)"; exit 1; \
+	fi; \
+	kubectl wait --for=condition=Ready pod/$$POD_NAME -n $(UMBRELLA_NAMESPACE) --timeout=60s; \
+	kubectl port-forward -n $(UMBRELLA_NAMESPACE) pod/$$POD_NAME 8000:8000
+
+.PHONY: dashboard-prometheus
+dashboard-prometheus: ## Port-forward Prometheus dashboard to localhost:9090
+	@echo "--- Port-forwarding Prometheus dashboard to http://localhost:9090 ..."
+	$(KUBECTL) port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090
 
 # Variables for Kustomize deployment
 ENVS ?= dev staging prod
@@ -375,6 +507,7 @@ kustomize-manifests: ## Generate the base manifests required for Kustomize overl
 		--set kubetasker-controller.certManager.namespace=$(ENV) \
 		--set kubetasker-controller.webhook.namespace=$(ENV) \
 		--set kubetasker-controller.webhook.service.namespace=$(ENV) \
+		--set kubetasker-frontend.controllerUrl=http://kubetasker-base-kubetasker-controller:8090 \
 		> kustomize/base/all.yaml
 
 	@echo "--- Copying authoritative CRD to kustomize/base/crd.yaml..."

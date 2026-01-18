@@ -32,6 +32,7 @@ __pycache__
 # Helm/Kustomize generated artifacts
 kustomize/base/all.yaml
 kustomize/base/crd.yaml
+helm/kubetasker-frontend/requirements.txt
 
 # Helm chart artifacts
 *.tgz

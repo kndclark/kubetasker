@@ -1,0 +1,61 @@
+[tool.bumpversion]
+current_version = "0.2.0"
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
+serialize = ["{major}.{minor}.{patch}"]
+search = "{current_version}"
+replace = "{new_version}"
+regex = false
+ignore_missing_version = false
+tag = false
+commit = false
+
+# Update the Makefile (Handles the 'v' prefix)
+[[tool.bumpversion.files]]
+filename = "Makefile"
+search = "VERSION ?= v{current_version}"
+replace = "VERSION ?= v{new_version}"
+
+# Update the Umbrella Chart
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker/Chart.yaml"
+search = "version: {current_version}"
+replace = "version: {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker/Chart.yaml"
+search = 'appVersion: "{current_version}"'
+replace = 'appVersion: "{new_version}"'
+
+# Update Umbrella Chart Dependencies (Updates the requirements for sub-charts)
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker/Chart.yaml"
+search = 'version: "{current_version}"'
+replace = 'version: "{new_version}"'
+
+# Update Controller Chart
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker-controller/Chart.yaml"
+search = "version: {current_version}"
+replace = "version: {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker-controller/Chart.yaml"
+search = 'appVersion: "{current_version}"'
+replace = 'appVersion: "{new_version}"'
+
+# Update Frontend Chart
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker-frontend/Chart.yaml"
+search = "version: {current_version}"
+replace = "version: {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "helm/kubetasker-frontend/Chart.yaml"
+search = 'appVersion: "{current_version}"'
+replace = 'appVersion: "{new_version}"'
+
+# Update E2E Test Suite (Handles the 'v' prefix in image tags)
+[[tool.bumpversion.files]]
+filename = "test/e2e/e2e_suite_test.go"
+search = ':v{current_version}"'
+replace = ':v{new_version}"'

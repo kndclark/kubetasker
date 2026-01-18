@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -46,9 +47,9 @@ var (
 	kindClusterName = "kubetasker-test-e2e"
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "ktasker.com/kubetasker:v0.0.1"
+	projectImage = "ktasker.com/kubetasker:v0.2.0"
 	// frontendImage is the name of the frontend API service image.
-	frontendImage  = "ktasker.com/kubetasker-frontend:v0.0.1"
+	frontendImage  = "ktasker.com/kubetasker-frontend:v0.2.0"
 	projectRootDir string
 	chartsRoot     string
 	testRoot       string
@@ -78,6 +79,13 @@ var _ = BeforeSuite(func() {
 
 	By("building the frontend API image")
 	frontendDir := filepath.Join(chartsRoot, "kubetasker-frontend")
+
+	// Copy requirements.txt to frontend directory so it is available in the build context
+	cmd = exec.Command("cp", filepath.Join(projectRootDir, "requirements.txt"), filepath.Join(frontendDir, "requirements.txt"))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to copy requirements.txt to frontend dir")
+	defer os.Remove(filepath.Join(frontendDir, "requirements.txt"))
+
 	dockerfilePath := filepath.Join(frontendDir, "Dockerfile")
 	cmd = exec.Command("docker", "build", "-t", frontendImage, "-f", dockerfilePath, frontendDir)
 	_, err = utils.Run(cmd)
@@ -120,7 +128,61 @@ var _ = BeforeSuite(func() {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: metrics-server is already installed. Skipping installation...\n")
 		}
 	}
+
+	// Always clean up cluster-scoped resources before any tests run to prevent poisoning
+	CleanupStaleClusterResources()
 })
+
+// CleanupStaleClusterResources aggressively deletes global resources like webhooks and clusterroles
+// that might have been left over from previous failed or interrupted test runs.
+func CleanupStaleClusterResources() {
+	By("scrubbing stale cluster-scoped resources")
+
+	// Patterns for stale webhooks
+	webhookPatterns := []string{
+		"kt-sched-kubetasker-controller",
+		"kt-prom-kubetasker-controller",
+		"kubetasker-dev-kubetasker-controller",
+		"kubetasker-staging-kubetasker-controller",
+		"kubetasker-prod-kubetasker-controller",
+		"kubetasker-e2e-kubetasker-controller",
+		"kubetasker-kubetasker-controller",
+		"kubetasker-controller",
+	}
+
+	for _, p := range webhookPatterns {
+		mutating := p + "-mutating-webhook-configuration"
+		validating := p + "-validating-webhook-configuration"
+
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", mutating, "--ignore-not-found"))
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfiguration", validating, "--ignore-not-found"))
+	}
+
+	// Also try deleting by label just in case
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", "-l", "app.kubernetes.io/part-of=kubetasker", "--ignore-not-found"))
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "validatingwebhookconfiguration", "-l", "app.kubernetes.io/part-of=kubetasker", "--ignore-not-found"))
+
+	// Stale ClusterRoles/Bindings
+	rbacPatterns := []string{
+		"kt-prom-kubetasker-controller-manager-role",
+		"kt-prom-kubetasker-controller-metrics-reader",
+		"kt-prom-kubetasker-controller-proxy-role",
+		"kt-prom-kubetasker-frontend-cluster-role",
+		"kubetasker-dev-kubetasker-frontend-cluster-role",
+		"kubetasker-staging-kubetasker-frontend-cluster-role",
+		"kubetasker-prod-kubetasker-frontend-cluster-role",
+		"kubetasker-e2e-kubetasker-frontend-cluster-role",
+	}
+
+	for _, p := range rbacPatterns {
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrole", p, "--ignore-not-found"))
+		bindingName := p + "binding"
+		if strings.HasSuffix(p, "-role") {
+			bindingName = strings.TrimSuffix(p, "-role") + "-rolebinding"
+		}
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", bindingName, "--ignore-not-found"))
+	}
+}
 
 var _ = AfterSuite(func() {
 	// Teardown CertManager after the suite if not skipped and if it was not already installed
@@ -286,6 +348,22 @@ func runInCurlPod(podName, namespace, shellCmd string) (string, error) {
 	execCmd := exec.Command("kubectl", "exec", podName, "--namespace", namespace, "--", "/bin/sh", "-c", shellCmd)
 	output, err := utils.Run(execCmd)
 	return output, err
+}
+
+// serviceAccountToken returns a token for the specified service account in the given namespace.
+// It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
+// via the `kubectl create token` command.
+func serviceAccountToken(serviceAccountName, namespaceName string) (string, error) {
+	var token string
+	var err error
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "create", "token", serviceAccountName, "-n", namespaceName)
+		token, err = utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(token).NotTo(BeEmpty())
+	}, "2m", "5s").Should(Succeed(), "Failed to create service account token")
+
+	return strings.TrimSpace(token), nil
 }
 
 // installMetricsServer installs the Kubernetes Metrics Server and patches it for Kind compatibility.

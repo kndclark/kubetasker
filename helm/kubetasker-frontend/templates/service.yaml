@@ -9,6 +9,7 @@ spec:
   selector:
     {{- include "kubetasker-frontend.selectorLabels" . | nindent 4 }}
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: 8000

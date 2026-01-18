@@ -5,28 +5,59 @@ kind: ServiceAccount
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
 ---
 # Source: kubetasker-frontend/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: kubetasker-frontend-test
+  name: kubetasker-frontend-test-cluster-role
   labels:
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups: ["task.ktasker.com"]
   resources: ["ktasks"]
-  verbs: ["get", "list", "create"]
+  verbs: ["get", "list"]
+---
+# Source: kubetasker-frontend/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubetasker-frontend-test-cluster-role-binding
+subjects:
+- kind: ServiceAccount
+  name: kubetasker-frontend-test
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kubetasker-frontend-test-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: kubetasker-frontend/templates/rbac.yaml
+# Keep a local Role for other operations if needed, but for listing ktasks cluster-wide we use the ClusterRole above
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubetasker-frontend-test
+  labels:
+    helm.sh/chart: kubetasker-frontend-0.2.0
+    app.kubernetes.io/name: kubetasker-frontend
+    app.kubernetes.io/instance: kubetasker-frontend-test
+    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups: ["task.ktasker.com"]
+  resources: ["ktasks"]
+  verbs: ["get", "list", "create", "delete"]
 ---
 # Source: kubetasker-frontend/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -47,10 +78,10 @@ kind: Service
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -58,9 +89,10 @@ spec:
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 8000
-      targetPort: http
+      targetPort: 8000
 ---
 # Source: kubetasker-frontend/templates/deployment.yaml
 apiVersion: apps/v1
@@ -68,10 +100,10 @@ kind: Deployment
 metadata:
   name: kubetasker-frontend-test
   labels:
-    helm.sh/chart: kubetasker-frontend-0.1.0
+    helm.sh/chart: kubetasker-frontend-0.2.0
     app.kubernetes.io/name: kubetasker-frontend
     app.kubernetes.io/instance: kubetasker-frontend-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -88,22 +120,30 @@ spec:
       serviceAccountName: kubetasker-frontend-test
       containers:
       - name: frontend-container
-        image: "ktasker.com/kubetasker-frontend:v0.0.1"
+        image: "ktasker.com/kubetasker-frontend:v0.2.0"
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
           name: http
+        env:
+          - name: CONTROLLER_URL
+            value: http://kubetasker-controller:8090
         livenessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: http
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
-          {}
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi

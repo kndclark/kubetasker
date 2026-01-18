@@ -4,15 +4,15 @@ description: An umbrella Helm chart for deploying the KubeTasker controller and 
 type: application
 
 # This is the umbrella chart version.
-version: 0.1.0
+version: 0.2.0
 
 # This appVersion can be an aggregate version for your whole application.
-appVersion: "0.0.1"
+appVersion: "0.2.0"
 
 dependencies:
 - name: kubetasker-controller
-  version: "0.1.0" # Must match the version in kubetasker-controller/Chart.yaml
+  version: "0.2.0" # Must match the version in kubetasker-controller/Chart.yaml
   repository: "file://../kubetasker-controller"
 - name: kubetasker-frontend
-  version: "0.1.0" # Must match the version in kubetasker-frontend/Chart.yaml
+  version: "0.2.0" # Must match the version in kubetasker-frontend/Chart.yaml
   repository: "file://../kubetasker-frontend"

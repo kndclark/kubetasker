@@ -37,6 +37,11 @@ func TestGoldenFiles(t *testing.T) {
 	t.Logf("Project root found at: %s", projectRoot)
 	chartsRoot := filepath.Join(projectRoot, "helm")
 
+	version := os.Getenv("VERSION")
+	if version == "" {
+		version = "v0.0.1"
+	}
+
 	t.Run("KustomizeOutput", func(t *testing.T) {
 		// Run kustomize build
 		t.Log("Running kustomize build...")
@@ -72,7 +77,7 @@ func TestGoldenFiles(t *testing.T) {
 		chartPath := filepath.Join(chartsRoot, "kubetasker-controller")
 		// We use --set to override values for a consistent test output
 		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
-			"image.repository=ktasker.com/kubetasker", "--set", "image.tag=v0.0.1")
+			"image.repository=ktasker.com/kubetasker", "--set", "image.tag="+version)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template: %s", string(output))
 
@@ -111,7 +116,7 @@ func TestGoldenFiles(t *testing.T) {
 		t.Logf("Running helm template for frontend with release name '%s'...", releaseName)
 		chartPath := filepath.Join(chartsRoot, "kubetasker-frontend")
 		cmd := exec.Command("helm", "template", releaseName, chartPath, "--set",
-			"image.repository=ktasker.com/kubetasker-frontend", "--set", "image.tag=v0.0.1")
+			"image.repository=ktasker.com/kubetasker-frontend", "--set", "image.tag="+version)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "Failed to run helm template for frontend: %s", string(output))
 
@@ -148,9 +153,9 @@ func TestGoldenFiles(t *testing.T) {
 					"-f", valuesFile,
 					// We set static images to ensure consistent output, as the chart version might change.
 					"--set", "kubetasker-controller.image.repository=controller",
-					"--set", "kubetasker-controller.image.tag=v0.0.1",
+					"--set", "kubetasker-controller.image.tag="+version,
 					"--set", "kubetasker-frontend.image.repository=ktasker.com/kubetasker-frontend",
-					"--set", "kubetasker-frontend.image.tag=v0.0.1",
+					"--set", "kubetasker-frontend.image.tag="+version,
 					// We must also disable the cert-manager parts, as they are cluster-dependent and not static.
 					"--set", "kubetasker-controller.certManager.enabled=false")
 				output, err := cmd.CombinedOutput()

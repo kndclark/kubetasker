@@ -6,10 +6,10 @@ metadata:
   name: kubetasker-controller-test
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
 ---
@@ -19,10 +19,10 @@ kind: ClusterRole
 metadata:
   name: kubetasker-controller-test-manager-role
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -78,10 +78,10 @@ kind: ClusterRole
 metadata:
   name: kubetasker-controller-test-metrics-auth-role
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -103,10 +103,10 @@ kind: ClusterRole
 metadata:
   name: kubetasker-controller-test-metrics-reader
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - nonResourceURLs:
@@ -120,10 +120,10 @@ kind: ClusterRoleBinding
 metadata:
   name: kubetasker-controller-test-manager-rolebinding
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -140,10 +140,10 @@ kind: ClusterRoleBinding
 metadata:
   name: kubetasker-controller-test-metrics-auth-rolebinding
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -160,10 +160,10 @@ kind: ClusterRoleBinding
 metadata:
   name: kubetasker-controller-test-metrics-reader-binding
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -181,10 +181,10 @@ metadata:
   name: kubetasker-controller-test-leader-election-role
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -226,10 +226,10 @@ metadata:
   name: kubetasker-controller-test-leader-election-rolebinding
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -247,10 +247,10 @@ metadata:
   name: kubetasker-controller-test-metrics-service
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
     control-plane: controller-manager
 spec:
@@ -264,6 +264,35 @@ spec:
     app.kubernetes.io/instance: kubetasker-controller-test
     control-plane: controller-manager
 ---
+# Source: kubetasker-controller/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubetasker-controller-test
+  namespace: default
+  labels:
+    helm.sh/chart: kubetasker-controller-0.2.0
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: kubetasker-controller-test
+    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/managed-by: Helm
+    control-plane: controller-manager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8090
+      targetPort: 8090
+      protocol: TCP
+      name: http
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: kubetasker-controller
+    app.kubernetes.io/instance: kubetasker-controller-test
+    control-plane: controller-manager
+---
 # Source: kubetasker-controller/templates/webhook-service.yaml
 apiVersion: v1
 kind: Service
@@ -271,10 +300,10 @@ metadata:
   name: kubetasker-controller-test-webhook-service
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   ports:
@@ -295,10 +324,10 @@ metadata:
   name: kubetasker-controller-test
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
     control-plane: controller-manager
 spec:
@@ -322,13 +351,23 @@ spec:
           type: RuntimeDefault
       containers:
       - name: manager
+        ports:
+        - containerPort: 8090
+          name: http
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         command:
         - /manager
         args:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
-        image: "ktasker.com/kubetasker:v0.0.1"
+        - --default-job-cpu-request=100m
+        - --default-job-memory-request=128Mi
+        - --default-job-cpu-limit=100m
+        - --default-job-memory-limit=128Mi
+        image: "ktasker.com/kubetasker:v0.2.0"
         imagePullPolicy: IfNotPresent
         securityContext:
           allowPrivilegeEscalation: false
@@ -349,11 +388,11 @@ spec:
           periodSeconds: 10
         resources:
           limits:
-            cpu: 500m
+            cpu: 100m
             memory: 128Mi
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 100m
+            memory: 128Mi
         volumeMounts:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-certs
@@ -371,10 +410,10 @@ metadata:
   name: kubetasker-controller-test-serving-cert
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   dnsNames:
@@ -392,10 +431,10 @@ metadata:
   name: kubetasker-controller-test-metrics-cert
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   dnsNames:
@@ -413,10 +452,10 @@ metadata:
   name: kubetasker-controller-test-selfsigned-issuer
   namespace: default
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   selfSigned: {}
@@ -430,10 +469,10 @@ metadata:
     "helm.sh/hook": post-install,post-upgrade
     cert-manager.io/inject-ca-from: "default/kubetasker-controller-test-serving-cert"
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:
@@ -466,10 +505,10 @@ metadata:
     "helm.sh/hook": post-install,post-upgrade
     cert-manager.io/inject-ca-from: "default/kubetasker-controller-test-serving-cert"
   labels:
-    helm.sh/chart: kubetasker-controller-0.1.0
+    helm.sh/chart: kubetasker-controller-0.2.0
     app.kubernetes.io/name: kubetasker-controller
     app.kubernetes.io/instance: kubetasker-controller-test
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.2.0"
     app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:

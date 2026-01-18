@@ -58,6 +58,14 @@ type KtaskSpec struct {
 	// Resources describes the compute resource requirements.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Affinity defines the scheduling constraints for the job's pods.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// Tolerations defines the tolerations for the job's pods.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 // Define the valid phases for a Ktask

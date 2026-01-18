@@ -53,7 +53,9 @@ service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
   # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 8081
+  port: 8090
+  targetPort: 8090
+  healthPort: 8081
 
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
@@ -133,6 +135,22 @@ readinessProbe:
     port: 8081
   initialDelaySeconds: 5
   periodSeconds: 10
+
+# This section configures the Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  namespace: monitoring
+  # The namespace where Prometheus Operator is installed (if different from app)
+  # namespace: monitoring
+  # Labels to add to the ServiceMonitor so Prometheus selects it
+  labels:
+    release: prometheus
+  interval: 30s
+  scrapeTimeout: 10s
+  # The name of the port in the Service to scrape
+  port: https
+  # The path to scrape
+  path: /metrics
 
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
