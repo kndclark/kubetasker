@@ -6,7 +6,6 @@ KubeTasker is currently under active development and should be considered experi
 
 [![E2E Tests](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test-e2e.yml)
 [![Go Tests](https://github.com/kndclark/kubetasker/actions/workflows/test.yml/badge.svg)](https://github.com/kndclark/kubetasker/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/kndclark/kubetasker)](https://goreportcard.com/report/github.com/kndclark/kubetasker)
 [![Trello](https://img.shields.io/badge/Trello-board-blue.svg)](https://trello.com/b/MduBZGNS/kubetasker)
 
 **KubeTasker** is a lightweight, distributed job scheduler for Kubernetes. It simplifies running one-off or batch jobs by providing a simple Custom Resource Definition (CRD), `Ktask`, which abstracts away the complexity of managing underlying Kubernetes `Job` objects.
